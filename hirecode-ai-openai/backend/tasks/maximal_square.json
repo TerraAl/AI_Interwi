@@ -3,8 +3,8 @@
   "stack": "python",
   "difficulty": 1800,
   "elo": 1850,
-  "title": "Maximal Square",
-  "description": "Given a binary matrix, find the largest square containing only 1's and return its area.",
+  "title": "Максимальный квадрат",
+  "description": "Дана бинарная матрица, найдите самый большой квадрат, содержащий только 1, и верните его площадь.",
   "follow_up": [
     "Как обрабатывать очень большие матрицы на GPU?",
     "Что если данные стримятся построчно?"
