@@ -50,7 +50,7 @@ class InterviewSession(Base):
     task = relationship("Task")
     submissions = relationship("CodeSubmission", back_populates="session")
     chat_messages = relationship("ChatMessage", back_populates="session")
-    anticheat_events = relationship("AntiCheatEvent", back_populates="session")
+    # anticheat_events = relationship("AntiCheatEvent", back_populates="session")  # temporarily commented
 
 class CodeSubmission(Base):
     __tablename__ = "code_submissions"
@@ -94,4 +94,4 @@ class AntiCheatEvent(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     metadata = Column(JSON)  # additional event data
 
-    session = relationship("InterviewSession", back_populates="anticheat_events")
+    # session = relationship("InterviewSession", back_populates="anticheat_events")  # temporarily commented
