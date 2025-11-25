@@ -7,6 +7,5 @@ python-dotenv==1.0.1
 docker==7.1.0
 radon==6.0.1
 pylint==3.2.6
-httpx==0.27.2
 openai==1.51.0
 

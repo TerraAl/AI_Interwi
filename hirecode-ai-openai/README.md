@@ -21,7 +21,7 @@ docker-compose up --build
 - Monaco IDE в браузере с запуском решений в Docker (Python, JS, Java, C++).
 - Автотесты (видимые + скрытые) с таймингами и лимитами, radon/pylint для качества кода.
 - Anti-cheat в реальном времени: paste >300 символов, DevTools, tab switch — всё едет в trust score.
-- AI-интервьювер (GPT-4o → Ollama/Groq fallback), стриминг через WebSocket, комментарии к действиям кандидата.
+- AI-интервьювер на едином OpenAI совместимом endpoint (стриминг через WebSocket, комментарии к действиям кандидата).
 - Elo-адаптив выдачи задач, админка для загрузки новых сценариев, PDF отчёт с кодом/чатом/метриками.
 - Один WebSocket-канал для IDE, anticheat и чата.
 
@@ -35,11 +35,16 @@ docker-compose.yml
 
 ## Настройки AI
 
-- Основной режим: OpenAI GPT-4o (client.chat.completions.create stream=True).
-- Fallback 1: Groq (llama3.1 70B).
-- Fallback 2: Ollama (llama3.1:70b) — запускается отдельным контейнером, если нет ключей.
+- Единственный клиент OpenAI совместимого API: `OPENAI_API_KEY`, `OPENAI_BASE_URL` (по умолчанию `https://llm.t1v.scibox.tech/v1`), `OPENAI_MODEL`.
+- Используется `client.chat.completions.create(..., stream=True)` и один и тот же модельный идентификатор во всём приложении.
 
-В `backend/.env` можно указать любые комбинации ключей — приоритет идёт сверху вниз.
+Минимальный `.env`:
+
+```
+OPENAI_API_KEY=sk-your-token
+OPENAI_BASE_URL=https://llm.t1v.scibox.tech/v1
+OPENAI_MODEL=gpt-4o
+```
 
 ## Admin / финальный отчёт
 

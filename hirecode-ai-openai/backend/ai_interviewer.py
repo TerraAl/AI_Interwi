@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
 
-import httpx
 from openai import AsyncOpenAI
 
 from anticheat import AntiCheatSnapshot
@@ -44,9 +42,13 @@ class AIInterviewer:
             else "You are a FAANG staff engineer conducting a rigorous coding interview."
         )
         self.openai_key = os.getenv("OPENAI_API_KEY")
-        self.ollama_host = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
-        self.groq_key = os.getenv("GROQ_API_KEY")
-        self.client = AsyncOpenAI(api_key=self.openai_key) if self.openai_key else None
+        self.base_url = os.getenv("OPENAI_BASE_URL", "https://llm.t1v.scibox.tech/v1")
+        self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
+        self.client = (
+            AsyncOpenAI(api_key=self.openai_key, base_url=self.base_url)
+            if self.openai_key
+            else None
+        )
         self.code_snapshots: Dict[str, str] = {}
         self.ws_manager = manager or WebsocketManager()
         self.chat_logger = chat_logger
@@ -85,18 +87,22 @@ class AIInterviewer:
             if self.chat_logger:
                 await self.chat_logger(session_id, "ai", warning)
 
-        if self.client:
-            await self._stream_openai(session_id, ws_manager, content)
-        elif self.groq_key:
-            await self._stream_groq(session_id, ws_manager, content)
-        else:
-            await self._stream_ollama(session_id, ws_manager, content)
+        if not self.client:
+            await ws_manager.broadcast(
+                session_id,
+                {
+                    "type": "chat:ai",
+                    "message": "LLM недоступен: не задан OPENAI_API_KEY.",
+                },
+            )
+            return
+        await self._stream_openai(session_id, ws_manager, content)
 
     async def _stream_openai(
         self, session_id: str, ws_manager: WebsocketManager, content: str
     ) -> None:
         stream = await self.client.chat.completions.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+            model=self.model,
             stream=True,
             messages=[
                 {"role": "system", "content": self.system_prompt},
@@ -121,65 +127,4 @@ class AIInterviewer:
         if self.chat_logger and buffer:
             await self.chat_logger(session_id, "ai", "".join(buffer))
 
-    async def _stream_groq(
-        self, session_id: str, ws_manager: WebsocketManager, content: str
-    ) -> None:
-        headers = {"Authorization": f"Bearer {self.groq_key}"}
-        async with httpx.AsyncClient(timeout=60) as client:
-            async with client.stream(
-                "POST",
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers=headers,
-                json={
-                    "model": "llama-3.1-70b-versatile",
-                    "messages": [
-                        {"role": "system", "content": self.system_prompt},
-                        {"role": "user", "content": content},
-                    ],
-                    "stream": True,
-                },
-            ) as response:
-                buffer = []
-                async for line in response.aiter_lines():
-                    if not line or line.startswith(":"):
-                        continue
-                    if line.startswith("data:"):
-                        data = line[len("data:") :].strip()
-                        if data == "[DONE]":
-                            break
-                        payload = json.loads(data)
-                        delta = payload["choices"][0]["delta"].get("content", "")
-                        if delta:
-                            await ws_manager.broadcast(
-                                session_id,
-                                {"type": "chat:ai", "message": delta, "stream": True},
-                            )
-                            buffer.append(delta)
-                if self.chat_logger and buffer:
-                    await self.chat_logger(session_id, "ai", "".join(buffer))
-    async def _stream_ollama(
-        self, session_id: str, ws_manager: WebsocketManager, content: str
-    ) -> None:
-        async with httpx.AsyncClient(timeout=60) as client:
-            async with client.stream(
-                "POST",
-                f"{self.ollama_host}/api/generate",
-                json={"model": "llama3.1:70b", "prompt": f"{self.system_prompt}\n\n{content}"},
-            ) as response:
-                buffer = []
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    payload = json.loads(line)
-                    if payload.get("done"):
-                        break
-                    token = payload.get("response", "")
-                    if token:
-                        await ws_manager.broadcast(
-                            session_id,
-                            {"type": "chat:ai", "message": token, "stream": True},
-                        )
-                        buffer.append(token)
-                if self.chat_logger and buffer:
-                    await self.chat_logger(session_id, "ai", "".join(buffer))
 
