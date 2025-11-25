@@ -93,7 +93,7 @@ class DockerRunner:
             command=command,
             name=name,
             working_dir="/workspace",
-            remove=True,
+            remove=False,
             tty=False,
             stdin_open=True,
             mem_limit="512m",
@@ -104,6 +104,7 @@ class DockerRunner:
 
         stdout = ""
         stderr = ""
+        exit_code = 0
         try:
             exit_code = container.wait()["StatusCode"]
             stdout = container.logs(stdout=True, stderr=False).decode()
