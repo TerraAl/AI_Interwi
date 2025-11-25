@@ -3,8 +3,8 @@
   "stack": "javascript",
   "difficulty": 1500,
   "elo": 1520,
-  "title": "Longest Substring Without Repeating Characters",
-  "description": "Given a string s, find the length of the longest substring without repeating characters.",
+  "title": "Самая длинная подстрока без повторяющихся символов",
+  "description": "Дана строка s, найдите длину самой длинной подстроки без повторяющихся символов.",
   "follow_up": [
     "Что поменяется, если нужно вернуть саму подстроку?",
     "Можно ли оптимизировать решение для потокового ввода символов?"

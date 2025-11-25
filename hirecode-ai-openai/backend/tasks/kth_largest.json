@@ -3,8 +3,8 @@
   "stack": "java",
   "difficulty": 1400,
   "elo": 1450,
-  "title": "Kth Largest Element",
-  "description": "Return the kth largest element in an unsorted array.",
+  "title": "K-й наибольший элемент",
+  "description": "Верните k-й наибольший элемент в неотсортированном массиве.",
   "follow_up": [
     "Как адаптировать решение для потоковых данных?",
     "Можно ли добиться O(1) доп.памяти?"

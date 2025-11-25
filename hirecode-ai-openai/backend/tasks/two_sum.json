@@ -3,8 +3,8 @@
   "stack": "python",
   "difficulty": 1200,
   "elo": 1250,
-  "title": "Two Sum",
-  "description": "Return indices of the two numbers such that they add up to a specific target.",
+  "title": "Две суммы",
+  "description": "Верните индексы двух чисел, сумма которых равна заданному целевому значению.",
   "follow_up": [
     "Как изменится решение, если нужно вернуть сами значения?",
     "Можем ли мы решить задачу, если массив отсортирован?"

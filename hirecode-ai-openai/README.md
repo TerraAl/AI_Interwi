@@ -8,7 +8,7 @@ HireCode AI — демонстрационная платформа техсоб
 cd hirecode-ai-openai
 cp backend/.env.example backend/.env
 # вставьте ключи
-echo "OPENAI_API_KEY=sk-..." >> backend/.env
+echo "OPENAI_API_KEY=sk-your-token" >> backend/.env
 echo "OPENAI_BASE_URL=https://llm.t1v.scibox.tech/v1" >> backend/.env
 echo "OPENAI_MODEL=qwen3-32b-awq" >> backend/.env
 
@@ -46,7 +46,7 @@ docker-compose.yml
 ```
 OPENAI_API_KEY=sk-your-token
 OPENAI_BASE_URL=https://llm.t1v.scibox.tech/v1
-OPENAI_MODEL=gpt-4o
+OPENAI_MODEL=qwen3-32b-awq
 ```
 
 ## Admin / финальный отчёт

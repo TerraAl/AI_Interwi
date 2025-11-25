@@ -44,7 +44,7 @@ class AIInterviewer:
         )
         self.openai_key = os.getenv("OPENAI_API_KEY")
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://llm.t1v.scibox.tech/v1")
-        self.model = os.getenv("OPENAI_MODEL", "gpt-4o")
+        self.model = os.getenv("OPENAI_MODEL", "qwen3-32b-awq")
         self.client = OpenAI(api_key=self.openai_key, base_url=self.base_url) if self.openai_key else None
         self.code_snapshots: Dict[str, str] = {}
         self.ws_manager = manager or WebsocketManager()

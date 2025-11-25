@@ -3,8 +3,8 @@
   "stack": "python",
   "difficulty": 1600,
   "elo": 1620,
-  "title": "Word Break",
-  "description": "Determine if a string can be segmented into words from a dictionary.",
+  "title": "Разбиение слов",
+  "description": "Определите, можно ли сегментировать строку на слова из словаря.",
   "follow_up": [
     "Как посчитать количество возможных сегментаций?",
     "Можно ли сделать автодополнение в реальном времени?"

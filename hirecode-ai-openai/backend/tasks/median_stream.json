@@ -3,8 +3,8 @@
   "stack": "python",
   "difficulty": 1700,
   "elo": 1750,
-  "title": "Running Median",
-  "description": "Maintain a stream of integers and output the median after each insertion.",
+  "title": "Текущая медиана",
+  "description": "Поддерживайте поток целых чисел и выводите медиану после каждой вставки.",
   "follow_up": [
     "Что если поток бесконечный и память ограничена?",
     "Как распределить структуру на несколько узлов?"

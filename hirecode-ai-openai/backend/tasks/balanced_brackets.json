@@ -3,8 +3,8 @@
   "stack": "cpp",
   "difficulty": 1100,
   "elo": 1130,
-  "title": "Balanced Brackets",
-  "description": "Determine if the input string containing ()[]{} is balanced.",
+  "title": "Сбалансированные скобки",
+  "description": "Определите, сбалансирована ли входная строка, содержащая ()[]{}",
   "follow_up": [
     "Как поддержать любые Unicode скобки?",
     "Что если нужно вернуть индекс первой ошибки?"
