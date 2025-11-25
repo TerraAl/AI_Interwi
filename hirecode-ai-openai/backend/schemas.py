@@ -161,3 +161,29 @@ class AdminTaskCreate(BaseModel):
     elo: int
     follow_up: List[str]
     tests: Dict[str, Any]
+
+# Interview API schemas
+class InterviewInitRequest(BaseModel):
+    candidate_name: str
+    stack: str
+
+class SessionStartResponse(BaseModel):
+    session_id: str
+    task: Dict[str, Any]
+
+class SubmissionRequest(BaseModel):
+    session_id: str
+    code: str
+    language: str
+    task_id: str
+
+class SubmissionResponse(BaseModel):
+    passed: bool
+    visible_tests: List[Dict[str, Any]]
+    hidden_tests: List[Dict[str, Any]]
+    code_quality: Dict[str, Any]
+    metrics: Dict[str, Any]
+
+class InterviewEvent(BaseModel):
+    type: str
+    payload: Dict[str, Any] = {}

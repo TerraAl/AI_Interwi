@@ -1,7 +1,66 @@
 from __future__ import annotations
 
-from typing import Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Dict, Any, List
+from datetime import datetime
+
+
+@dataclass
+class AntiCheatSnapshot:
+    session_id: str
+    trust_score: float
+    events: List[Dict]
+
+
+class AntiCheatService:
+    """Система анти-читинга для отслеживания подозрительной активности кандидатов."""
+
+    def __init__(self) -> None:
+        self.session_trust_scores: Dict[str, float] = defaultdict(lambda: 100.0)
+        self.session_events: Dict[str, List[Dict]] = defaultdict(list)
+
+    def bootstrap_session(self, session_id: str) -> None:
+        """Инициализация сессии анти-читинга."""
+        self.session_trust_scores[session_id] = 100.0
+        self.session_events[session_id] = []
+
+    def record_event(self, session_id: str, event: Any) -> None:
+        """Запись события анти-читинга."""
+        event_type = event.type if hasattr(event, 'type') else event.get("type", "unknown")
+        payload = event.payload if hasattr(event, 'payload') else event.get("payload", {})
+        
+        severity = 0.1
+        if event_type == "anticheat:paste":
+            chars = payload.get("chars", 0)
+            if chars > 300:
+                severity = min(1.0, (chars - 300) / 300.0)
+        elif event_type in ["anticheat:devtools", "anticheat:tab_switch"]:
+            severity = 0.3
+        
+        self.session_events[session_id].append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "event_type": event_type,
+            "description": payload.get("description", ""),
+            "severity": severity,
+            "metadata": payload
+        })
+        
+        # Обновляем trust_score
+        self.session_trust_scores[session_id] = max(0.0, self.session_trust_scores[session_id] - severity * 10)
+
+    def snapshot(self, session_id: str) -> AntiCheatSnapshot:
+        """Получение снимка состояния анти-читинга."""
+        return AntiCheatSnapshot(
+            session_id=session_id,
+            trust_score=self.session_trust_scores[session_id],
+            events=self.session_events[session_id]
+        )
+
+    def complete_session(self, session_id: str) -> None:
+        """Завершение сессии анти-читинга."""
+        self.session_trust_scores.pop(session_id, None)
+        self.session_events.pop(session_id, None)
 
 
 class AntiCheatSystem:

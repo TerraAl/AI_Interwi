@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
 import uvicorn
 
 from models import Base, User, InterviewSession, Task
@@ -18,13 +19,17 @@ from schemas import (
     UserCreate, UserLogin, User as UserSchema,
     TaskCreate, Task as TaskSchema,
     InterviewSessionCreate, InterviewSession as SessionSchema,
-    WSMessage, CodeUpdateMessage, AntiCheatAlertMessage, AIChatMessage
+    WSMessage, CodeUpdateMessage, AntiCheatAlertMessage, AIChatMessage,
+    InterviewInitRequest, SessionStartResponse, SubmissionRequest, SubmissionResponse,
+    InterviewEvent, AdminTaskCreate
 )
-from ai_interviewer import AIInterviewer
-from anticheat import AntiCheatSystem
+from ai_interviewer import AIInterviewer, InterviewContext
+from anticheat import AntiCheatService
 from adaptive import AdaptiveEngine
 from code_quality import CodeQualityAnalyzer
+from judge import SubmissionJudge
 from websocket_manager import WebsocketManager
+from runner import SupportedLanguage
 
 # Environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@postgres:5432/hirecode")
@@ -42,10 +47,17 @@ redis_client = redis.from_url(REDIS_URL)
 
 # Managers
 ws_manager = WebsocketManager()
-ai_interviewer = AIInterviewer()
-anticheat_system = AntiCheatSystem()
-adaptive_selector = AdaptiveEngine()
-code_analyzer = CodeQualityAnalyzer()
+anticheat_service = AntiCheatService()
+adaptive_engine = AdaptiveEngine()
+code_quality_analyzer = CodeQualityAnalyzer()
+judge = SubmissionJudge()
+
+# Initialize AI interviewer with manager
+async def log_chat(session_id: str, role: str, message: str):
+    """Log chat message to database"""
+    pass
+
+ai = AIInterviewer(manager=ws_manager, chat_logger=log_chat)
 
 security = HTTPBearer()
 
@@ -172,88 +184,154 @@ async def create_task(
     await db.refresh(task)
     return task
 
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    session_id: int,
-    db: AsyncSession = Depends(get_db)
-):
-    await websocket.accept()
-    active_connections[session_id] = websocket
+# Interview API endpoints
+@app.post("/api/interview/start", response_model=SessionStartResponse)
+async def start_interview(
+    payload: InterviewInitRequest, db: AsyncSession = Depends(get_db)
+) -> SessionStartResponse:
+    task = adaptive_engine.pick_task(payload.stack)
+    if not task:
+        raise HTTPException(status_code=404, detail="No tasks available")
 
+    # Create session in database
+    session = InterviewSession(
+        user_id=1,  # Demo user
+        current_task_id=None,
+        user_elo=1200.0,
+        started_at=datetime.utcnow()
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    
+    session_id = str(session.id)
+    anticheat_service.bootstrap_session(session_id)
+    await redis_client.hset(
+        f"session:{session_id}",
+        mapping={
+            "candidate": payload.candidate_name,
+            "stack": payload.stack,
+            "task_id": task["id"],
+        },
+    )
+    return SessionStartResponse(session_id=session_id, task=task)
+
+@app.post("/api/interview/submit", response_model=SubmissionResponse)
+async def submit_solution(
+    payload: SubmissionRequest,
+    db: AsyncSession = Depends(get_db),
+) -> SubmissionResponse:
     try:
-        # Send welcome message
-        await ws_manager.send_to_session(session_id, {
-            "type": "ai_message",
-            "data": {
-                "message": "Привет! Я — твой AI-интервьювер. Начнем собеседование. Расскажи, как ты планируешь решать задачу?",
-                "streaming": False
-            }
+        session = await db.get(InterviewSession, int(payload.session_id))
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Invalid session ID")
+    
+    language = SupportedLanguage(payload.language)
+    judge_result = await judge.evaluate(payload.code, language, payload.task_id)
+    judge_result["code_quality"] = code_quality_analyzer.analyze(payload.code, payload.language)
+    anticheat = anticheat_service.snapshot(payload.session_id)
+    await redis_client.hset(
+        f"session:{payload.session_id}",
+        mapping={"latest_result": json.dumps(judge_result)},
+    )
+    
+    # Capture AI feedback
+    asyncio.create_task(
+        ai.capture_judge_feedback(payload.session_id, judge_result, anticheat)
+    )
+    
+    # Update session
+    session.total_score = judge_result.get("metrics", {}).get("max_elapsed_ms", 0)
+    session.trust_score = anticheat.trust_score
+    await db.commit()
+    
+    return SubmissionResponse(
+        passed=judge_result["passed"],
+        visible_tests=judge_result["visible_tests"],
+        hidden_tests=[],
+        code_quality=judge_result["code_quality"],
+        metrics=judge_result["metrics"]
+    )
+
+@app.post("/api/admin/tasks")
+async def create_task_admin(payload: AdminTaskCreate):
+    task_data = adaptive_engine.save_task(payload)
+    return task_data
+
+@app.get("/api/admin/sessions")
+async def list_sessions():
+    sessions = []
+    # Get all session keys from Redis
+    keys = await redis_client.keys("session:*")
+    for key in keys:
+        data = await redis_client.hgetall(key)
+        session_id = key.decode().split(":")[1] if isinstance(key, bytes) else key.split(":")[1]
+        sessions.append({
+            "id": session_id,
+            "candidate": data.get(b"candidate", b"Unknown").decode() if isinstance(data.get(b"candidate"), bytes) else data.get("candidate", "Unknown"),
+            "stack": data.get(b"stack", b"python").decode() if isinstance(data.get(b"stack"), bytes) else data.get("stack", "python"),
+            "status": "active",
+            "trust_score": float(data.get(b"trust_score", b"100").decode() if isinstance(data.get(b"trust_score"), bytes) else data.get("trust_score", "100"))
         })
+    return {"sessions": sessions}
 
-        while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
+@app.websocket("/ws/interview/{session_id}")
+async def interview_ws(websocket: WebSocket, session_id: str) -> None:
+    await ws_manager.connect(session_id, websocket)
+    try:
+        await websocket.accept()
+        await websocket.send_json({"type": "connected", "session_id": session_id})
 
-            if message["type"] == "code_update":
-                await handle_code_update(session_id, message["data"], db)
-            elif message["type"] == "anticheat_event":
-                await handle_anticheat_event(session_id, message["data"], db)
-            elif message["type"] == "chat_message":
-                await handle_chat_message(session_id, message["data"], db)
+        async for message in websocket.iter_text():
+            data = json.loads(message)
+            event = InterviewEvent(**data)
+            anticheat_service.record_event(session_id, event)
+            snapshot = anticheat_service.snapshot(session_id)
 
+            if event.type == "chat:user":
+                await log_chat(session_id, "user", event.payload.get("message", ""))
+                # Trigger AI response
+                context = InterviewContext.from_event(event)
+                asyncio.create_task(
+                    ai.stream_reply(
+                        session_id=session_id,
+                        ws_manager=ws_manager,
+                        context=context
+                    )
+                )
+            elif event.type == "code:update":
+                ai.cache_code_snapshot(session_id, event.payload.get("content", ""))
+                await redis_client.hset(
+                    f"session:{session_id}",
+                    mapping={"latest_code": event.payload.get("content", "")},
+                )
+            elif event.type.startswith("anticheat:"):
+                await ws_manager.broadcast(
+                    session_id,
+                    {
+                        "type": "anticheat",
+                        "trust_score": snapshot.trust_score,
+                        "events": snapshot.events,
+                    },
+                )
+                await redis_client.hset(
+                    f"session:{session_id}",
+                    mapping={"trust_score": snapshot.trust_score},
+                )
+                if event.type == "anticheat:paste" and event.payload.get("chars", 0) >= 600:
+                    warning = "Заметил большую вставку кода. Это твоё решение или ты воспользовался помощью?"
+                    await ws_manager.broadcast(
+                        session_id,
+                        {"type": "chat:ai", "message": warning, "meta": {"severity": "warning"}},
+                    )
+                    await log_chat(session_id, "ai", warning)
     except WebSocketDisconnect:
-        del active_connections[session_id]
+        ws_manager.disconnect(session_id, websocket)
+    finally:
+        anticheat_service.complete_session(session_id)
 
-async def handle_code_update(session_id: int, data: dict, db: AsyncSession):
-    # Analyze code quality
-    quality_score = await code_analyzer.analyze(data["code"], data["language"])
-
-    # Run tests
-    test_results = await run_code_tests(session_id, data, db)
-
-    # Notify AI interviewer
-    await ai_interviewer.on_code_change(session_id, data, test_results, quality_score, db)
-
-    # Send results back
-    await ws_manager.send_to_session(session_id, {
-        "type": "code_results",
-        "data": {
-            "quality_score": quality_score,
-            "test_results": test_results
-        }
-    })
-
-async def handle_anticheat_event(session_id: int, data: dict, db: AsyncSession):
-    # Process anticheat event
-    trust_score = await anticheat_system.process_event(session_id, data, db)
-
-    # Notify AI if suspicious
-    if data.get("severity", 0) > 0.7:
-        await ai_interviewer.on_anticheat_alert(session_id, data, db)
-
-    # Send trust score update
-    await ws_manager.send_to_session(session_id, {
-        "type": "trust_score_update",
-        "data": {"trust_score": trust_score}
-    })
-
-async def handle_chat_message(session_id: int, data: dict, db: AsyncSession):
-    # Process user message
-    await ai_interviewer.on_user_message(session_id, data["message"], db)
-
-async def run_code_tests(session_id: int, code_data: dict, db: AsyncSession):
-    # Placeholder for test execution
-    # In real implementation, this would run code in Docker
-    return {
-        "passed": 2,
-        "total": 3,
-        "results": [
-            {"test": "Basic case", "passed": True, "time": 0.001},
-            {"test": "Edge case", "passed": True, "time": 0.002},
-            {"test": "Large input", "passed": False, "time": 2.1, "error": "Time limit exceeded"}
-        ]
-    }
 
 if __name__ == "__main__":
     uvicorn.run(
