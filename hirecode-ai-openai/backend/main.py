@@ -27,13 +27,14 @@ from code_quality import CodeQualityAnalyzer
 from websocket_manager import WebsocketManager
 
 # Environment variables
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/hirecode")
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@postgres:5432/hirecode")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-here")
 
 # Database setup
-engine = create_async_engine(DATABASE_URL, echo=True)
+print(f"Connecting to database: {DATABASE_URL.split('@')[1] if '@' in DATABASE_URL else 'hidden'}")
+engine = create_async_engine(DATABASE_URL, echo=True, pool_pre_ping=True)
 async_session = async_sessionmaker(engine, expire_on_commit=False)
 
 # Redis setup
