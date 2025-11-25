@@ -47,7 +47,7 @@ export default function AdminPanel() {
   return (
     <main className="min-h-screen bg-canvas text-white p-8 space-y-8">
       <section className="rounded-3xl border border-white/10 p-6">
-        <h1 className="text-2xl font-semibold mb-4">Admin / Company Panel</h1>
+        <h1 className="text-2xl font-semibold mb-4">Панель администратора</h1>
         <form className="grid grid-cols-2 gap-4" onSubmit={handleSubmit}>
           {(["id", "title", "description"] as const).map((field) => (
             <input

@@ -46,7 +46,7 @@ export default function IDE({
     <section className="flex flex-col h-full rounded-3xl bg-panel/80 backdrop-blur border border-white/5">
       <header className="flex items-center justify-between px-5 py-3 border-b border-white/5">
         <div>
-          <p className="text-xs uppercase text-white/60">Browser IDE</p>
+          <p className="text-xs uppercase text-white/60">Браузерная IDE</p>
           <h2 className="text-xl font-semibold">Monaco + Docker Runner</h2>
         </div>
         <div className="flex gap-3">

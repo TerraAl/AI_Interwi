@@ -13,7 +13,7 @@ export default function TaskDescription({ title, description, followUp }: Props)
       </header>
       <p className="text-white/70 leading-relaxed">{description}</p>
       <div>
-        <p className="text-xs uppercase text-white/40 mb-1">Follow-up</p>
+        <p className="text-xs uppercase text-white/40 mb-1">Дополнительные вопросы</p>
         <ul className="space-y-2 text-white/70 text-sm">
           {followUp.map((item) => (
             <li key={item} className="flex gap-2 items-start">

@@ -47,7 +47,7 @@ export default function Interview() {
         {
           id: crypto.randomUUID(),
           role: "ai",
-          content: `Привет! Я твой интервьювер сегодня. Расскажи, как планируешь решать задачу ${data.task.title}?`,
+          content: `Привет! Я твой интервьюер сегодня. Расскажи, как планируешь решать задачу "${data.task.title}"?`,
         },
       ]);
       const socket = new InterviewSocket(data.session_id);
@@ -156,7 +156,7 @@ export default function Interview() {
               followUp={session.task.follow_up}
             />
             <div className="rounded-3xl bg-panel/50 border border-white/5 p-5">
-              <p className="text-xs uppercase text-white/50 mb-1">Trust score</p>
+              <p className="text-xs uppercase text-white/50 mb-1">Уровень доверия</p>
               <p className="text-4xl font-semibold">
                 {typeof anticheat.trust_score === "number" ? anticheat.trust_score.toFixed(0) : 100}%
               </p>
