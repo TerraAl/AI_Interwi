@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles } from "lucide-react";
 import IDE from "../components/IDE";
 import AIChat from "../components/AIChat";
+import FinalReportPDF from "../components/FinalReportPDF";
 import AntiCheatProvider from "../components/AntiCheatProvider";
 import { InterviewSocket } from "../lib/websocket";
 
