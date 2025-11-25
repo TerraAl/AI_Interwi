@@ -24,7 +24,7 @@ from ai_interviewer import AIInterviewer
 from anticheat import AntiCheatSystem
 from adaptive import AdaptiveTaskSelector
 from code_quality import CodeQualityAnalyzer
-from websocket_manager import WebSocketManager
+from websocket_manager import WebsocketManager
 
 # Environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost/hirecode")
@@ -40,7 +40,7 @@ async_session = async_sessionmaker(engine, expire_on_commit=False)
 redis_client = redis.from_url(REDIS_URL)
 
 # Managers
-ws_manager = WebSocketManager()
+ws_manager = WebsocketManager()
 ai_interviewer = AIInterviewer()
 anticheat_system = AntiCheatSystem()
 adaptive_selector = AdaptiveTaskSelector()

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from models import InterviewSession, ChatMessage, Task, CodeSubmission
-from websocket_manager import WebSocketManager
+from websocket_manager import WebsocketManager
 
 class AIInterviewer:
     def __init__(self):
@@ -35,7 +35,7 @@ class AIInterviewer:
         with open("prompts/system_prompt.txt", "r", encoding="utf-8") as f:
             self.system_prompt = f.read()
 
-        self.ws_manager = WebSocketManager()
+        self.ws_manager = WebsocketManager()
         self.active_streams: Dict[int, bool] = {}  # session_id -> is_streaming
 
     async def get_llm_client(self):
