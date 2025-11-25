@@ -273,17 +273,37 @@ async def create_task_admin(payload: AdminTaskCreate):
 async def list_sessions():
     sessions = []
     # Get all session keys from Redis
-    keys = await redis_client.keys("session:*")
-    for key in keys:
-        data = await redis_client.hgetall(key)
-        session_id = key.decode().split(":")[1] if isinstance(key, bytes) else key.split(":")[1]
-        sessions.append({
-            "id": session_id,
-            "candidate": data.get(b"candidate", b"Unknown").decode() if isinstance(data.get(b"candidate"), bytes) else data.get("candidate", "Unknown"),
-            "stack": data.get(b"stack", b"python").decode() if isinstance(data.get(b"stack"), bytes) else data.get("stack", "python"),
-            "status": "active",
-            "trust_score": float(data.get(b"trust_score", b"100").decode() if isinstance(data.get(b"trust_score"), bytes) else data.get("trust_score", "100"))
-        })
+    try:
+        keys = await redis_client.keys("session:*")
+        for key in keys:
+            try:
+                # Check if key is a hash
+                key_type = await redis_client.type(key)
+                if key_type != b"hash" and key_type != "hash":
+                    continue
+                    
+                data = await redis_client.hgetall(key)
+                session_id = key.decode().split(":")[1] if isinstance(key, bytes) else key.split(":")[1]
+                
+                def get_value(data, field, default):
+                    val = data.get(field.encode() if isinstance(field, str) else field, default.encode() if isinstance(default, str) else default)
+                    if isinstance(val, bytes):
+                        return val.decode()
+                    return val
+                
+                sessions.append({
+                    "id": session_id,
+                    "candidate": get_value(data, "candidate", "Unknown"),
+                    "stack": get_value(data, "stack", "python"),
+                    "status": "active",
+                    "trust_score": float(get_value(data, "trust_score", "100"))
+                })
+            except Exception as e:
+                # Skip invalid keys
+                print(f"Error processing session key {key}: {e}")
+                continue
+    except Exception as e:
+        print(f"Error listing sessions: {e}")
     return {"sessions": sessions}
 
 @app.websocket("/ws/interview/{session_id}")
