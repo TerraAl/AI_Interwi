@@ -46,8 +46,13 @@ export default function Interview() {
       setMessages([
         {
           id: crypto.randomUUID(),
+          role: "system",
+          content: `Задача: ${data.task.title}\n\n${data.task.description}`,
+        },
+        {
+          id: crypto.randomUUID(),
           role: "ai",
-          content: `Привет! Я твой интервьюер сегодня. Расскажи, как планируешь решать задачу "${data.task.title}"?`,
+          content: `Привет! Я твой интервьюер сегодня. Расскажи, как планируешь решать эту задачу?`,
         },
       ]);
       const socket = new InterviewSocket(data.session_id);

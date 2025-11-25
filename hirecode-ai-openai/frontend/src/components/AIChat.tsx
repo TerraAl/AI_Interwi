@@ -48,7 +48,7 @@ export default function AIChat({ messages, onSend, streaming }: Props) {
             {messages
               .filter(msg => msg.role === "ai")
               .map(msg => msg.content)
-              .join("\n\n")}
+              .join("")}
           </div>
         )}
 
