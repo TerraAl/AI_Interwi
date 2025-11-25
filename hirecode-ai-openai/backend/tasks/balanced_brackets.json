@@ -1,0 +1,23 @@
+{
+  "id": "balanced_brackets",
+  "stack": "cpp",
+  "difficulty": 1100,
+  "elo": 1130,
+  "title": "Balanced Brackets",
+  "description": "Determine if the input string containing ()[]{} is balanced.",
+  "follow_up": [
+    "Как поддержать любые Unicode скобки?",
+    "Что если нужно вернуть индекс первой ошибки?"
+  ],
+  "tests": {
+    "visible": [
+      { "input": "()[]{}", "output": "true\n" },
+      { "input": "([)]", "output": "false\n" }
+    ],
+    "hidden": [
+      { "input": "{[]}", "output": "true\n" },
+      { "input": "((((", "output": "false\n" }
+    ]
+  }
+}
+

@@ -1,0 +1,35 @@
+{
+  "id": "two_sum",
+  "stack": "python",
+  "difficulty": 1200,
+  "elo": 1250,
+  "title": "Two Sum",
+  "description": "Return indices of the two numbers such that they add up to a specific target.",
+  "follow_up": [
+    "Как изменится решение, если нужно вернуть сами значения?",
+    "Можем ли мы решить задачу, если массив отсортирован?"
+  ],
+  "tests": {
+    "visible": [
+      {
+        "input": "4\\n2 7 11 15\\n9\\n",
+        "output": "0 1\n"
+      },
+      {
+        "input": "3\\n3 2 4\\n6\\n",
+        "output": "1 2\n"
+      }
+    ],
+    "hidden": [
+      {
+        "input": "2\\n3 3\\n6\\n",
+        "output": "0 1\n"
+      },
+      {
+        "input": "5\\n1 5 3 9 7\\n16\\n",
+        "output": "2 3\n"
+      }
+    ]
+  }
+}
+

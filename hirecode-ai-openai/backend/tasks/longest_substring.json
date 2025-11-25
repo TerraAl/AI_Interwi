@@ -1,0 +1,23 @@
+{
+  "id": "longest_substring",
+  "stack": "javascript",
+  "difficulty": 1500,
+  "elo": 1520,
+  "title": "Longest Substring Without Repeating Characters",
+  "description": "Given a string s, find the length of the longest substring without repeating characters.",
+  "follow_up": [
+    "Что поменяется, если нужно вернуть саму подстроку?",
+    "Можно ли оптимизировать решение для потокового ввода символов?"
+  ],
+  "tests": {
+    "visible": [
+      { "input": "abcabcbb\n", "output": "3\n" },
+      { "input": "bbbbb\n", "output": "1\n" }
+    ],
+    "hidden": [
+      { "input": "pwwkew\n", "output": "3\n" },
+      { "input": "dvdf\n", "output": "3\n" }
+    ]
+  }
+}
+

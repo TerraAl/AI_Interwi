@@ -1,0 +1,23 @@
+{
+  "id": "word_break",
+  "stack": "python",
+  "difficulty": 1600,
+  "elo": 1620,
+  "title": "Word Break",
+  "description": "Determine if a string can be segmented into words from a dictionary.",
+  "follow_up": [
+    "Как посчитать количество возможных сегментаций?",
+    "Можно ли сделать автодополнение в реальном времени?"
+  ],
+  "tests": {
+    "visible": [
+      { "input": "leetcode\nleet code\n", "output": "true\n" },
+      { "input": "catsandog\ncats dog sand and cat\n", "output": "false\n" }
+    ],
+    "hidden": [
+      { "input": "pineapplepenapple\napple pen applepen pine pineapple\n", "output": "true\n" },
+      { "input": "aaaaaaa\na aaaa aa\n", "output": "true\n" }
+    ]
+  }
+}
+

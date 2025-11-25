@@ -1,0 +1,41 @@
+{
+  "name": "hirecode-ai-openai-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@radix-ui/react-dialog": "^1.0.5",
+    "@radix-ui/react-slot": "^1.0.3",
+    "@radix-ui/react-tooltip": "^1.0.7",
+    "clsx": "^2.0.0",
+    "class-variance-authority": "^0.7.0",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.8.1",
+    "tailwind-merge": "^2.2.0",
+    "zustand": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.2",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.19",
+    "biome": "^1.9.0",
+    "postcss": "^8.4.45",
+    "tailwindcss": "^3.4.10",
+    "tslib": "^2.7.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  }
+}
+

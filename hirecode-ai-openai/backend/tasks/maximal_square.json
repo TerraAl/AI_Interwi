@@ -1,0 +1,35 @@
+{
+  "id": "maximal_square",
+  "stack": "python",
+  "difficulty": 1800,
+  "elo": 1850,
+  "title": "Maximal Square",
+  "description": "Given a binary matrix, find the largest square containing only 1's and return its area.",
+  "follow_up": [
+    "Как обрабатывать очень большие матрицы на GPU?",
+    "Что если данные стримятся построчно?"
+  ],
+  "tests": {
+    "visible": [
+      {
+        "input": "4 5\n1 0 1 0 0\n1 0 1 1 1\n1 1 1 1 1\n1 0 0 1 0\n",
+        "output": "4\n"
+      },
+      {
+        "input": "2 2\n0 1\n1 0\n",
+        "output": "1\n"
+      }
+    ],
+    "hidden": [
+      {
+        "input": "3 3\n1 1 1\n1 1 1\n1 1 1\n",
+        "output": "9\n"
+      },
+      {
+        "input": "3 4\n0 0 0 0\n0 1 1 0\n0 1 1 0\n",
+        "output": "4\n"
+      }
+    ]
+  }
+}
+

@@ -1,0 +1,2 @@
+# HireCode AI backend package
+
