@@ -22,7 +22,7 @@ from schemas import (
 )
 from ai_interviewer import AIInterviewer
 from anticheat import AntiCheatSystem
-from adaptive import AdaptiveTaskSelector
+from adaptive import AdaptiveEngine
 from code_quality import CodeQualityAnalyzer
 from websocket_manager import WebsocketManager
 
@@ -43,7 +43,7 @@ redis_client = redis.from_url(REDIS_URL)
 ws_manager = WebsocketManager()
 ai_interviewer = AIInterviewer()
 anticheat_system = AntiCheatSystem()
-adaptive_selector = AdaptiveTaskSelector()
+adaptive_selector = AdaptiveEngine()
 code_analyzer = CodeQualityAnalyzer()
 
 security = HTTPBearer()
