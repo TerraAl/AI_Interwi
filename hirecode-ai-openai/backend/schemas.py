@@ -150,3 +150,14 @@ class SessionReport(BaseModel):
     chat_messages: List[ChatMessage]
     anticheat_events: List[AntiCheatEvent]
     final_feedback: str
+
+
+class AdminTaskCreate(BaseModel):
+    id: str
+    title: str
+    description: str
+    stack: str
+    difficulty: int
+    elo: int
+    follow_up: List[str]
+    tests: Dict[str, Any]
