@@ -192,7 +192,7 @@ async def websocket_endpoint(
 
 async def handle_code_update(session_id: int, data: dict, db: AsyncSession):
     # Analyze code quality
-    quality_score = await code_analyzer.analyze_code(data["code"], data["language"])
+    quality_score = await code_analyzer.analyze(data["code"], data["language"])
 
     # Run tests
     test_results = await run_code_tests(session_id, data, db)
