@@ -193,9 +193,18 @@ async def start_interview(
     if not task:
         raise HTTPException(status_code=404, detail="No tasks available")
 
+    # Get or create demo user
+    result = await db.execute(select(User).where(User.email == "demo@hirecode.ai"))
+    user = result.scalar_one_or_none()
+    if not user:
+        user = User(email="demo@hirecode.ai", hashed_password="demo", is_admin=False)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
     # Create session in database
     session = InterviewSession(
-        user_id=1,  # Demo user
+        user_id=user.id,
         current_task_id=None,
         user_elo=1200.0,
         started_at=datetime.utcnow()
