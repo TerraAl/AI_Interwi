@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles } from "lucide-react";
 import IDE from "../components/IDE";
 import AIChat from "../components/AIChat";
-import TaskDescription from "../components/TaskDescription";
 import FinalReportPDF from "../components/FinalReportPDF";
 import AntiCheatProvider from "../components/AntiCheatProvider";
 import { InterviewSocket } from "../lib/websocket";
@@ -155,11 +154,6 @@ export default function Interview() {
         </header>
         <div className="grid grid-cols-12 gap-6">
           <div className="col-span-3 space-y-4">
-            <TaskDescription
-              title={session.task.title}
-              description={session.task.description}
-              followUp={session.task.follow_up}
-            />
             <div className="rounded-3xl bg-panel/50 border border-white/5 p-5">
               <p className="text-xs uppercase text-white/50 mb-1">Уровень доверия</p>
               <p className="text-4xl font-semibold">
@@ -175,7 +169,7 @@ export default function Interview() {
               anticheat={anticheat}
             />
           </div>
-          <div className="col-span-5">
+          <div className="col-span-6">
             <IDE
               language={language}
               code={code}
@@ -186,7 +180,7 @@ export default function Interview() {
               results={results}
             />
           </div>
-          <div className="col-span-4">
+          <div className="col-span-3">
             <AIChat messages={messages} onSend={handleSendChat} streaming={streaming} />
           </div>
         </div>

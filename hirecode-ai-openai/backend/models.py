@@ -1,93 +1,97 @@
-from __future__ import annotations
-
-import os
-import uuid
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, ForeignKey, JSON
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List
 
-from sqlalchemy import JSON, Column, DateTime, Float, String, create_engine, select
-from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+Base = declarative_base()
 
-if TYPE_CHECKING:
-    from schemas import InterviewInitRequest
-    from anticheat import AntiCheatSnapshot
+class User(Base):
+    __tablename__ = "users"
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+psycopg://postgres:postgres@postgres:5432/hirecode"
-)
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
+    sessions = relationship("InterviewSession", back_populates="user")
 
-class Base(DeclarativeBase):
-    pass
+class Task(Base):
+    __tablename__ = "tasks"
 
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True)
+    description = Column(Text)
+    difficulty = Column(String)  # easy, medium, hard
+    category = Column(String)  # algorithms, data-structures, system-design
+    language = Column(String)  # python, javascript, java, cpp
+    initial_code = Column(Text)
+    test_cases = Column(JSON)  # visible and hidden tests
+    time_limit = Column(Float, default=5.0)  # seconds
+    memory_limit = Column(Integer, default=256)  # MB
+    elo_rating = Column(Float, default=1200)
+    follow_up_questions = Column(JSON)  # AI follow-up questions
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-EngineLocal = create_engine(DATABASE_URL, future=True)
-SessionLocal = sessionmaker(bind=EngineLocal, autocommit=False, autoflush=False)
+class InterviewSession(Base):
+    __tablename__ = "interview_sessions"
 
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    current_task_id = Column(Integer, ForeignKey("tasks.id"))
+    user_elo = Column(Float, default=1200)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    ended_at = Column(DateTime, nullable=True)
+    total_score = Column(Float, default=0)
+    trust_score = Column(Float, default=100)  # Anti-cheat score
+    final_report = Column(JSON, nullable=True)
 
-class SessionModel(Base):
-    __tablename__ = "sessions"
+    user = relationship("User", back_populates="sessions")
+    task = relationship("Task")
+    submissions = relationship("CodeSubmission", back_populates="session")
+    chat_messages = relationship("ChatMessage", back_populates="session")
+    anticheat_events = relationship("AntiCheatEvent", back_populates="session")
 
-    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    candidate: Mapped[str] = mapped_column(String)
-    stack: Mapped[str] = mapped_column(String)
-    task_id: Mapped[str] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, default="active")
-    trust_score: Mapped[float] = mapped_column(Float, default=100.0)
-    summary: Mapped[Dict[str, Any] | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+class CodeSubmission(Base):
+    __tablename__ = "code_submissions"
 
-    @classmethod
-    def create_from_request(
-        cls, db: Session, payload: "InterviewInitRequest", task: Dict[str, Any]
-    ) -> "SessionModel":
-        session = cls(
-            candidate=payload.candidate_name,
-            stack=payload.stack,
-            task_id=task["id"],
-            status="active",
-        )
-        db.add(session)
-        db.commit()
-        db.refresh(session)
-        return session
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("interview_sessions.id"))
+    task_id = Column(Integer, ForeignKey("tasks.id"))
+    code = Column(Text)
+    language = Column(String)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+    execution_time = Column(Float, nullable=True)
+    memory_used = Column(Float, nullable=True)
+    passed_tests = Column(Integer, default=0)
+    total_tests = Column(Integer, default=0)
+    code_quality_score = Column(Float, nullable=True)
+    test_results = Column(JSON)
 
-    @classmethod
-    def get_or_404(cls, db: Session, session_id: str) -> "SessionModel":
-        session = db.get(cls, session_id)
-        if not session:
-            raise ValueError("Session not found")
-        return session
+    session = relationship("InterviewSession", back_populates="submissions")
+    task = relationship("Task")
 
-    def update_from_result(
-        self, db: Session, judge_result: Dict[str, Any], anticheat: "AntiCheatSnapshot"
-    ) -> None:
-        self.status = "passed" if judge_result["passed"] else "failed"
-        self.trust_score = anticheat.trust_score
-        self.summary = {
-            "judge_result": judge_result,
-            "anticheat": anticheat.__dict__,
-        }
-        db.add(self)
-        db.commit()
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
 
-    @classmethod
-    def list_recent(cls, db: Session) -> List[Dict[str, Any]]:
-        stmt = select(cls).order_by(cls.created_at.desc()).limit(50)
-        results = db.execute(stmt).scalars().all()
-        return [
-            {
-                "id": row.id,
-                "candidate": row.candidate,
-                "stack": row.stack,
-                "status": row.status,
-                "trust_score": row.trust_score,
-                "summary": row.summary,
-                "created_at": row.created_at.isoformat(),
-            }
-            for row in results
-        ]
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("interview_sessions.id"))
+    sender = Column(String)  # 'ai' or 'user'
+    message = Column(Text)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    message_type = Column(String, default='text')  # text, code_change, anticheat_alert
 
+    session = relationship("InterviewSession", back_populates="chat_messages")
+
+class AntiCheatEvent(Base):
+    __tablename__ = "anticheat_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("interview_sessions.id"))
+    event_type = Column(String)  # paste, tab_switch, devtools, blur, etc.
+    description = Column(String)
+    severity = Column(Float, default=1.0)  # 0-1, how suspicious
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    metadata = Column(JSON)  # additional event data
+
+    session = relationship("InterviewSession", back_populates="anticheat_events")
