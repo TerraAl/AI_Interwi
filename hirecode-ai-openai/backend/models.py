@@ -5,17 +5,6 @@ from datetime import datetime
 
 Base = declarative_base()
 
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
-    hashed_password = Column(String)
-    is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    sessions = relationship("InterviewSession", back_populates="user")
-
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -32,6 +21,17 @@ class Task(Base):
     elo_rating = Column(Float, default=1200)
     follow_up_questions = Column(JSON)  # AI follow-up questions
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    is_admin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    sessions = relationship("InterviewSession", back_populates="user")
 
 class InterviewSession(Base):
     __tablename__ = "interview_sessions"
@@ -83,15 +83,16 @@ class ChatMessage(Base):
 
     session = relationship("InterviewSession", back_populates="chat_messages")
 
-class AntiCheatEvent(Base):
-    __tablename__ = "anticheat_events"
-
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(Integer, ForeignKey("interview_sessions.id"))
-    event_type = Column(String)  # paste, tab_switch, devtools, blur, etc.
-    description = Column(String)
-    severity = Column(Float, default=1.0)  # 0-1, how suspicious
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    metadata = Column(JSON)  # additional event data
-
-    # session = relationship("InterviewSession", back_populates="anticheat_events")  # temporarily commented
+# AntiCheatEvent temporarily removed due to SQLAlchemy mapping issues
+# class AntiCheatEvent(Base):
+#     __tablename__ = "anticheat_events"
+#
+#     id = Column(Integer, primary_key=True, index=True)
+#     session_id = Column(Integer, ForeignKey("interview_sessions.id"))
+#     event_type = Column(String)  # paste, tab_switch, devtools, blur, etc.
+#     description = Column(String)
+#     severity = Column(Float, default=1.0)  # 0-1, how suspicious
+#     timestamp = Column(DateTime, default=datetime.utcnow)
+#     metadata = Column(JSON)  # additional event data
+#
+#     session = relationship("InterviewSession", back_populates="anticheat_events")
