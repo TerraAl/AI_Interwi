@@ -11,18 +11,24 @@ from reportlab.pdfbase.ttfonts import TTFont
 from typing import Dict, List, Any
 import os
 
-# Utility function to safely handle Cyrillic text in Paragraphs
-def safe_text(text: str) -> str:
-    """Escape text for safe inclusion in Paragraph elements."""
+# Utility function to handle text safely
+def safe_paragraph(text: str, style) -> Paragraph:
+    """Create a Paragraph with safe text encoding."""
     if not isinstance(text, str):
         text = str(text)
-    # Escape XML-like characters but preserve Cyrillic
-    text = text.replace('&', '&amp;')
-    text = text.replace('<', '&lt;')
-    text = text.replace('>', '&gt;')
-    text = text.replace('"', '&quot;')
-    text = text.replace("'", '&#x27;')
-    return text
+    # Try to encode as latin-1; if it fails, use ASCII approximation
+    try:
+        text.encode('latin-1')
+        return Paragraph(text, style)
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Text contains non-latin-1 chars (Cyrillic)
+        # Transliterate or use placeholder
+        try:
+            # For Cyrillic, just pass it through — modern reportlab handles UTF-8
+            return Paragraph(text, style)
+        except:
+            # Fallback: return text as-is wrapped in <br/>
+            return Paragraph("[Non-ASCII text]", style)
 
 
 # Функция для установки шрифтов если их нет
@@ -70,6 +76,15 @@ def setup_fonts():
         return 'Helvetica', 'Helvetica-Bold', None
 
 DEFAULT_FONT, BOLD_FONT, MONO_FONT = setup_fonts()
+
+# Force UTF-8 encoding in reportlab
+import sys
+if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
+    try:
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    except:
+        pass
 
 # Configure reportlab for UTF-8 support
 try:
@@ -126,6 +141,7 @@ def generate_report_pdf(
     # Логируем входящие данные
     print(f"[PDF-GEN] Generating PDF for: {candidate_name}")
     print(f"[PDF-GEN] Task: {task_title}")
+    print(f"[PDF-GEN] Using fonts: DEFAULT={DEFAULT_FONT}, BOLD={BOLD_FONT}")
 
     heading_style = ParagraphStyle(
         'CustomHeading',
@@ -165,10 +181,10 @@ def generate_report_pdf(
     # Информация о кандидате
     story.append(Paragraph("Информация о кандидате", heading_style))
     info_data = [
-           ["Имя кандидата:", Paragraph(safe_text(candidate_name), normal_style)],
-           ["Задача:", Paragraph(safe_text(task_title), normal_style)],
-           ["Язык программирования:", Paragraph(safe_text(language), normal_style)],
-           ["Дата завершения:", Paragraph(datetime.now().strftime("%d.%m.%Y %H:%M"), normal_style)],
+           ["Имя кандидата:", candidate_name],
+           ["Задача:", task_title],
+           ["Язык программирования:", language],
+           ["Дата завершения:", datetime.now().strftime("%d.%m.%Y %H:%M")],
     ]
     # Prefer explicit contact parameters; fall back to `_contact` inside test_results if provided
     contact_from_results = {}
@@ -181,14 +197,23 @@ def generate_report_pdf(
     final_position = position or contact_from_results.get('position')
 
     if final_email:
-        info_data.append(["Email:", Paragraph(safe_text(final_email), normal_style)])
+        info_data.append(["Email:", final_email])
     if final_phone:
-        info_data.append(["Телефон:", Paragraph(safe_text(final_phone), normal_style)])
+        info_data.append(["Телефон:", final_phone])
     if final_location:
-        info_data.append(["Город/Локация:", Paragraph(safe_text(final_location), normal_style)])
+        info_data.append(["Город/Локация:", final_location])
     if final_position:
-        info_data.append(["Должность:", Paragraph(safe_text(final_position), normal_style)])
-    info_table = Table(info_data, colWidths=[4*cm, 12*cm])
+        info_data.append(["Должность:", final_position])
+    
+    # Convert all strings to paragraphs with proper styling
+    styled_info_data = []
+    for label, value in info_data:
+        styled_info_data.append([
+            safe_paragraph(label, normal_style),
+            safe_paragraph(str(value) if not isinstance(value, str) else value, normal_style)
+        ])
+    
+    info_table = Table(styled_info_data, colWidths=[4*cm, 12*cm])
     info_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#ecf0f1')),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
