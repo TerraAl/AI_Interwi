@@ -86,33 +86,39 @@ export default function IDE({
       </div>
 
       {results && (
-        <div className="border-t border-white/5 px-5 py-4 space-y-3 text-sm">
+        <div className="border-t border-white/5 px-5 py-4 text-sm">
           <p className="text-white/70 uppercase tracking-wider text-xs">
             Автотесты
           </p>
-          {results.visible_tests.map((test, idx) => (
-            <div
-              key={idx}
-              className={clsx(
-                "rounded-2xl px-4 py-3 border transition",
-                test.passed
-                  ? "border-emerald-500/30 bg-emerald-500/5"
-                  : "border-rose-500/30 bg-rose-500/5",
-              )}
-            >
-              <div className="flex items-center justify-between font-semibold">
-                <span>Тест #{idx + 1}</span>
-                <span>{test.passed ? "✅" : "❌"}</span>
-              </div>
-              <p className="text-white/60 mt-2">stdout: {test.stdout.trim()}</p>
-              <p className="text-white/40">
-                expected: {test.expected.trim()}
-              </p>
-              <p className="text-white/40">
-                elapsed: {test.elapsed_ms.toFixed(1)} ms
-              </p>
-            </div>
-          ))}
+          <div className="mt-3 max-h-64 overflow-y-auto space-y-3 pr-1">
+            {results.visible_tests && results.visible_tests.length > 0 ? (
+              results.visible_tests.map((test, idx) => (
+                <div
+                  key={idx}
+                  className={clsx(
+                    "rounded-2xl px-4 py-3 border transition",
+                    test.passed
+                      ? "border-emerald-500/30 bg-emerald-500/5"
+                      : "border-rose-500/30 bg-rose-500/5",
+                  )}
+                >
+                  <div className="flex items-center justify-between font-semibold">
+                    <span>Тест #{idx + 1}</span>
+                    <span>{test.passed ? "✅" : "❌"}</span>
+                  </div>
+                  <p className="text-white/60 mt-2">stdout: {test.stdout.trim()}</p>
+                  <p className="text-white/40">
+                    expected: {test.expected.trim()}
+                  </p>
+                  <p className="text-white/40">
+                    elapsed: {test.elapsed_ms.toFixed(1)} ms
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="text-white/50">Тестовые результаты отсутствуют.</p>
+            )}
+          </div>
         </div>
       )}
     </section>

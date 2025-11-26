@@ -344,17 +344,19 @@ export default function Interview() {
               userPosition={userData?.position}
             />
           </div>
-          <div className="col-span-6 overflow-hidden">
-            <IDE
-              language={language}
-              code={code}
-              running={isRunning}
-              onChange={setCode}
-              onRun={handleRun}
-              onSubmit={handleRun}
-              results={results}
-              finished={isFinished}
-            />
+          <div className="col-span-6 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-hidden">
+              <IDE
+                language={language}
+                code={code}
+                running={isRunning}
+                onChange={setCode}
+                onRun={handleRun}
+                onSubmit={handleRun}
+                results={results}
+                finished={isFinished}
+              />
+            </div>
             {scoring && (
               <div className="mt-4 rounded-2xl bg-white/5 border border-white/10 p-4 text-sm">
                 <div className="flex items-center justify-between">

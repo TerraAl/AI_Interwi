@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
+import tarfile
 import tempfile
 import time
 import uuid
@@ -69,14 +71,25 @@ class DockerRunner:
             input_file = Path(tmpdir) / "input.txt"
             input_file.write_text(input_data, encoding="utf-8")
 
-            binds = {tmpdir: {"bind": "/workspace", "mode": "rw"}}
-            command = ["bash", "-lc", config["command"]]
+            archive = self._build_workspace_archive(
+                {
+                    f"Main{config['extension']}": file_path,
+                    "input.txt": input_file,
+                }
+            )
+
+            command = ["bash", "-lc", "cd /workspace && " + config["command"]]
             container_name = f"hirecode-runner-{uuid.uuid4()}"
 
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
-                lambda: self._run_container(container_name, config["image"], command, binds),
+                lambda: self._run_container(
+                    container_name,
+                    config["image"],
+                    command,
+                    archive,
+                ),
             )
             return result
 
@@ -85,22 +98,27 @@ class DockerRunner:
         name: str,
         image: str,
         command: List[str],
-        binds: Dict[str, dict],
+        archive: bytes,
     ) -> ExecutionResult:
         start = time.perf_counter()
-        container = self.client.containers.run(
+        container = self.client.containers.create(
             image=image,
             command=command,
             name=name,
             working_dir="/workspace",
-            remove=False,
             tty=False,
-            stdin_open=True,
+            stdin_open=False,
             mem_limit="512m",
             network_disabled=True,
-            volumes=binds,
-            detach=True,
         )
+
+        try:
+            container.put_archive("/", archive)
+        except Exception:
+            container.remove(force=True)
+            raise
+
+        container.start()
 
         stdout = ""
         stderr = ""
@@ -127,6 +145,18 @@ class DockerRunner:
             elapsed_ms=elapsed,
             memory_bytes=0,
         )
+
+
+    def _build_workspace_archive(self, files: Dict[str, Path]) -> bytes:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as tar:
+            for arcname, path in files.items():
+                data = path.read_bytes()
+                info = tarfile.TarInfo(name=f"workspace/{arcname}")
+                info.size = len(data)
+                tar.addfile(info, io.BytesIO(data))
+        buffer.seek(0)
+        return buffer.read()
 
 
 runner = DockerRunner()
