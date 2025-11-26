@@ -3,7 +3,7 @@ import json
 import os
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 
 import redis.asyncio as redis
@@ -220,6 +220,7 @@ async def start_interview(
     session_id = str(session.id)
     anticheat_service.bootstrap_session(session_id)
     now = datetime.utcnow().isoformat()
+    deadline_utc = (datetime.utcnow() + timedelta(minutes=90)).isoformat()
     
     # Initialize empty test results
     empty_result = {
@@ -242,10 +243,14 @@ async def start_interview(
             "status": "active",
             "created_at": now,
             "latest_result": json.dumps(empty_result),
+            "tasks_completed": "0",
+            "total_tasks": "5",
+            "deadline_utc": deadline_utc,
         },
     )
     print(f"[SESSION] Created session {session_id} with empty test results initialized")
-    return SessionStartResponse(session_id=session_id, task=task)
+    progress = {"tasks_completed": 0, "total_tasks": 5, "deadline_utc": deadline_utc}
+    return SessionStartResponse(session_id=session_id, task=task, progress=progress)
 
 @app.post("/api/interview/submit", response_model=SubmissionResponse)
 async def submit_solution(
@@ -316,12 +321,101 @@ async def submit_solution(
     await db.commit()
     print(f"[SUBMIT] Updated DB trust_score to {anticheat.trust_score}")
     
+    # Build scoring components
+    total_visible = len(visible_tests)
+    correct_pct = (passed_visible / total_visible * 100.0) if total_visible > 0 else 0.0
+    elapsed_ms = judge_result.get("metrics", {}).get("max_elapsed_ms", 0.0)
+    # Style from pylint_score 0..10 => 0..100
+    q = judge_result.get("code_quality", {}) or {}
+    pylint_score = q.get("pylint_score", 0.0) or 0.0
+    style_score = max(0.0, min(100.0, (float(pylint_score) / 10.0) * 100.0))
+    # Heuristic optimality/speed (demo): lower time -> higher score
+    def clamp01(x: float) -> float:
+        return max(0.0, min(1.0, x))
+    optimality = (1.0 - clamp01(elapsed_ms / 5000.0)) * 100.0
+    speed_score = (1.0 - clamp01(elapsed_ms / 2000.0)) * 100.0
+    # Communication heuristic (demo)
+    comm_score = 85.0 if (passed_visible == total_visible and anticheat.trust_score >= 80.0) else 65.0
+    # Weighted overall
+    overall = (
+        0.40 * correct_pct
+        + 0.25 * optimality
+        + 0.15 * style_score
+        + 0.15 * comm_score
+        + 0.05 * speed_score
+    )
+    overall = round(overall, 1)
+    # Letter grade mapping
+    def to_letter(score: float) -> str:
+        if score >= 97: return "A+"
+        if score >= 93: return "A"
+        if score >= 90: return "A-"
+        if score >= 87: return "B+"
+        if score >= 83: return "B"
+        if score >= 80: return "B-"
+        if score >= 77: return "C+"
+        if score >= 73: return "C"
+        if score >= 70: return "C-"
+        if score >= 67: return "D+"
+        if score >= 63: return "D"
+        if score >= 60: return "D-"
+        return "F"
+    letter = to_letter(overall)
+
+    # Progress update from Redis
+    sess_key = f"session:{payload.session_id}"
+    try:
+        tasks_completed_raw = await redis_client.hget(sess_key, "tasks_completed")
+        total_tasks_raw = await redis_client.hget(sess_key, "total_tasks")
+        deadline_utc = await redis_client.hget(sess_key, "deadline_utc")
+        tasks_completed = int(tasks_completed_raw.decode() if isinstance(tasks_completed_raw, bytes) else (tasks_completed_raw or 0))
+        total_tasks = int(total_tasks_raw.decode() if isinstance(total_tasks_raw, bytes) else (total_tasks_raw or 5))
+    except Exception:
+        tasks_completed, total_tasks, deadline_utc = 0, 5, None
+
+    # If all visible tests passed for this task, increment tasks_completed (max total_tasks)
+    if total_visible > 0 and passed_visible == total_visible:
+        tasks_completed = min(total_tasks, tasks_completed + 1)
+
+    # Persist latest score/grade/progress
+    await redis_client.hset(
+        sess_key,
+        mapping={
+            "latest_result": json.dumps(judge_result),
+            "trust_score": str(anticheat.trust_score),
+            "latest_score": str(overall),
+            "letter_grade": letter,
+            "tasks_completed": str(tasks_completed),
+        },
+    )
+
+    # Auto-complete if reached total tasks
+    if tasks_completed >= total_tasks:
+        await redis_client.hset(sess_key, mapping={"status": "completed"})
+
+    scoring = {
+        "correctness": round(correct_pct, 1),
+        "optimality": round(optimality, 1),
+        "style": round(style_score, 1),
+        "communication": round(comm_score, 1),
+        "speed": round(speed_score, 1),
+        "overall": overall,
+        "letter": letter,
+    }
+    progress = {
+        "tasks_completed": tasks_completed,
+        "total_tasks": total_tasks,
+        "deadline_utc": deadline_utc.decode() if isinstance(deadline_utc, bytes) else deadline_utc,
+    }
+
     return SubmissionResponse(
         passed=judge_result["passed"],
         visible_tests=judge_result["visible_tests"],
         hidden_tests=[],
         code_quality=judge_result["code_quality"],
-        metrics=judge_result["metrics"]
+        metrics=judge_result["metrics"],
+        progress=progress,
+        scoring=scoring,
     )
 
 @app.post("/api/admin/tasks")
@@ -380,7 +474,12 @@ async def list_sessions():
                     "status": status,
                     "trust_score": trust_score,
                     "task_title": task_title,
-                    "created_at": created_at
+                    "created_at": created_at,
+                    "tasks_completed": int(get_value(data, "tasks_completed", "0") or 0),
+                    "total_tasks": int(get_value(data, "total_tasks", "5") or 5),
+                    "deadline_utc": get_value(data, "deadline_utc", ""),
+                    "latest_score": get_value(data, "latest_score", ""),
+                    "letter_grade": get_value(data, "letter_grade", ""),
                 })
                 print(f"[ADMIN-API] Session {session_id}: candidate={candidate}, status={status}, trust_score={trust_score}, created_at={created_at}")
             except Exception as e:
@@ -562,7 +661,38 @@ async def generate_pdf_report(request: ReportGenerateRequest):
                 print(f"[REPORT] Redis fetch failed: {e}")
 
         # -------------------------------
-        # 2. Генерация PDF
+        # 2. Подготовка финальных метрик/прогресса из Redis
+        # -------------------------------
+        overall_score = None
+        letter_grade = None
+        progress = None
+        if request.session_id:
+            try:
+                data = await redis_client.hgetall(f"session:{request.session_id}")
+                def _g(key):
+                    v = data.get(key.encode())
+                    return v.decode() if isinstance(v, bytes) else v
+                latest_score_str = _g("latest_score")
+                letter_grade = _g("letter_grade")
+                tasks_completed = _g("tasks_completed")
+                total_tasks = _g("total_tasks")
+                deadline_utc = _g("deadline_utc")
+                if latest_score_str:
+                    try:
+                        overall_score = float(latest_score_str)
+                    except Exception:
+                        overall_score = None
+                if tasks_completed or total_tasks or deadline_utc:
+                    progress = {
+                        "tasks_completed": int(tasks_completed or 0),
+                        "total_tasks": int(total_tasks or 5),
+                        "remaining": "",
+                    }
+            except Exception as e:
+                print(f"[REPORT] Failed to load final metrics from Redis: {e}")
+
+        # -------------------------------
+        # 3. Генерация PDF
         # -------------------------------
         pdf_buffer = generate_report_pdf(
             candidate_name=request.candidate_name,
@@ -578,6 +708,9 @@ async def generate_pdf_report(request: ReportGenerateRequest):
             phone=phone,
             location=location,
             position=position,
+            overall_score=overall_score,
+            letter_grade=letter_grade,
+            progress=progress,
         )
 
         print(f"[REPORT] Generated PDF report for {request.candidate_name}")

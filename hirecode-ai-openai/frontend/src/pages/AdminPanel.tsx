@@ -14,6 +14,11 @@ type SessionRow = {
   phone?: string;
   location?: string;
   position?: string;
+  tasks_completed?: number;
+  total_tasks?: number;
+  deadline_utc?: string;
+  latest_score?: string;
+  letter_grade?: string;
 };
 type TaskForm = {
   id: string;
@@ -119,6 +124,52 @@ export default function AdminPanel() {
     if (numScore >= 80) return 'text-green-400';
     if (numScore >= 60) return 'text-yellow-400';
     return 'text-red-400';
+  };
+
+  const formatRemaining = (deadline?: string) => {
+    if (!deadline) return '-';
+    const ms = Date.parse(deadline) - Date.now();
+    if (!isFinite(ms) || ms <= 0) return '00:00';
+    const s = Math.floor(ms / 1000);
+    const mm = String(Math.floor(s / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return `${mm}:${ss}`;
+  };
+
+  const handleExportCSV = () => {
+    const headers = [
+      'id','candidate','stack','status','trust_score','tasks_completed','total_tasks','deadline_utc','latest_score','letter_grade','created_at','task_title','email','phone','location','position'
+    ];
+    const rows = sessions.map(s => [
+      s.id,
+      s.candidate,
+      s.stack,
+      s.status,
+      typeof s.trust_score === 'number' ? s.trust_score.toFixed(1) : String(s.trust_score || ''),
+      String(s.tasks_completed ?? ''),
+      String(s.total_tasks ?? ''),
+      s.deadline_utc ?? '',
+      s.latest_score ?? '',
+      s.letter_grade ?? '',
+      s.created_at ?? '',
+      s.task_title ?? '',
+      s.email ?? '',
+      s.phone ?? '',
+      s.location ?? '',
+      s.position ?? '',
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.map(x => `"${String(x).replace(/"/g,'""')}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hirecode_sessions_${Date.now()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    }, 50);
   };
 
   const handleDownloadReport = async (session: SessionRow) => {
@@ -302,16 +353,27 @@ export default function AdminPanel() {
             <FileText className="text-blue-400" size={24} />
             <h2 className="text-xl font-semibold">Сессии кандидатов</h2>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={fetchSessions}
-            disabled={loading}
-            className="flex items-center gap-2"
-          >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-            Обновить
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={fetchSessions}
+              disabled={loading}
+              className="flex items-center gap-2"
+            >
+              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+              Обновить
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleExportCSV}
+              className="flex items-center gap-2"
+            >
+              <Download size={16} />
+              Export CSV
+            </Button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -325,6 +387,10 @@ export default function AdminPanel() {
                 <th className="py-3 px-4">Стек</th>
                 <th className="py-3 px-4">Статус</th>
                 <th className="py-3 px-4">Доверие</th>
+                <th className="py-3 px-4">Прогресс</th>
+                <th className="py-3 px-4">Осталось</th>
+                <th className="py-3 px-4">Score</th>
+                <th className="py-3 px-4">Grade</th>
                 <th className="py-3 px-4">Действия</th>
               </tr>
             </thead>
@@ -334,13 +400,13 @@ export default function AdminPanel() {
                   <td className="py-3 px-4 font-mono text-xs">
                     {row.id.slice(0, 8)}…
                   </td>
-                    <td className="py-3 px-4 font-medium">{row.candidate}</td>
-                    <td className="py-3 px-4">{row.email || "-"}</td>
-                    <td className="py-3 px-4">{row.phone || "-"}</td>
-                    <td className="py-3 px-4">
-                      <span className="px-2 py-1 rounded-full bg-white/10 text-xs uppercase">
-                        {row.stack}
-                      </span>
+                  <td className="py-3 px-4 font-medium">{row.candidate}</td>
+                  <td className="py-3 px-4">{row.email || "-"}</td>
+                  <td className="py-3 px-4">{row.phone || "-"}</td>
+                  <td className="py-3 px-4">
+                    <span className="px-2 py-1 rounded-full bg-white/10 text-xs uppercase">
+                      {row.stack}
+                    </span>
                   </td>
                   <td className="py-3 px-4">
                     <span className={`capitalize ${getStatusColor(row.status)}`}>
@@ -357,6 +423,14 @@ export default function AdminPanel() {
                         : parseFloat(String(row.trust_score) || '0').toFixed(1)}%
                     </span>
                   </td>
+                  <td className="py-3 px-4">
+                    {`${row.tasks_completed ?? 0}/${row.total_tasks ?? 5}`}
+                  </td>
+                  <td className="py-3 px-4">
+                    {formatRemaining(row.deadline_utc)}
+                  </td>
+                  <td className="py-3 px-4">{row.latest_score ?? '-'}</td>
+                  <td className="py-3 px-4">{row.letter_grade ?? '-'}</td>
                   <td className="py-3 px-4">
                     <Button
                       variant="ghost"

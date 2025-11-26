@@ -18,6 +18,9 @@ def generate_report_pdf(
     phone: str | None = None,
     location: str | None = None,
     position: str | None = None,
+    overall_score: float | None = None,
+    letter_grade: str | None = None,
+    progress: Dict[str, Any] | None = None,
     # Добавим путь к шрифту как аргумент (можно захардкодить внутри)
     font_path: str = "DejaVuSans.ttf" 
 ) -> BytesIO:
@@ -171,17 +174,53 @@ def generate_report_pdf(
     pdf.cell(0, 10, "Final Score", ln=True)
     pdf.set_font(main_font, "", 11)
     
-    test_score = (passed_tests / total_tests * 100) if total_tests > 0 else 0
-    code_quality_normalized = (code_quality_score * 10) if code_quality_score else 0
-    overall_score = (test_score * 0.4 + trust_score * 0.3 + code_quality_normalized * 0.3)
+    # Prefer provided overall_score/letter_grade if available (from backend scoring)
+    if overall_score is not None and letter_grade is not None:
+        final_overall = float(overall_score)
+        final_letter = str(letter_grade)
+    else:
+        test_score = (passed_tests / total_tests * 100) if total_tests > 0 else 0
+        code_quality_normalized = (code_quality_score * 10) if code_quality_score else 0
+        final_overall = (test_score * 0.4 + trust_score * 0.3 + code_quality_normalized * 0.3)
+        # Simple letter mapping
+        if final_overall >= 97: final_letter = "A+"
+        elif final_overall >= 93: final_letter = "A"
+        elif final_overall >= 90: final_letter = "A-"
+        elif final_overall >= 87: final_letter = "B+"
+        elif final_overall >= 83: final_letter = "B"
+        elif final_overall >= 80: final_letter = "B-"
+        elif final_overall >= 77: final_letter = "C+"
+        elif final_overall >= 73: final_letter = "C"
+        elif final_overall >= 70: final_letter = "C-"
+        elif final_overall >= 67: final_letter = "D+"
+        elif final_overall >= 63: final_letter = "D"
+        elif final_overall >= 60: final_letter = "D-"
+        else: final_letter = "F"
     
-    result_text = "RECOMMENDED" if overall_score >= 75 else ("MAYBE" if overall_score >= 50 else "NOT RECOMMENDED")
+    result_text = "RECOMMENDED" if final_overall >= 75 else ("MAYBE" if final_overall >= 50 else "NOT RECOMMENDED")
     
     pdf.set_font(main_font, "B", 10)
     pdf.cell(50, row_height, "Overall Score:", border=1)
-    pdf.cell(130, row_height, f"{overall_score:.1f}/100", border=1, ln=True)
+    pdf.cell(130, row_height, f"{final_overall:.1f}/100", border=1, ln=True)
+    pdf.cell(50, row_height, "Letter:", border=1)
+    pdf.cell(130, row_height, final_letter, border=1, ln=True)
     pdf.cell(50, row_height, "Decision:", border=1)
     pdf.cell(130, row_height, result_text, border=1, ln=True)
+    
+    # Progress section (optional)
+    if progress:
+        pdf.ln(5)
+        pdf.set_font(main_font, "B", 14)
+        pdf.cell(0, 10, "Interview Progress", ln=True)
+        pdf.set_font(main_font, "", 11)
+        tc = progress.get('tasks_completed', 0)
+        tt = progress.get('total_tasks', 5)
+        rem = progress.get('remaining', '')
+        pdf.cell(50, row_height, "Completed:", border=1)
+        pdf.cell(130, row_height, f"{tc}/{tt}", border=1, ln=True)
+        if rem:
+            pdf.cell(50, row_height, "Remaining:", border=1)
+            pdf.cell(130, row_height, str(rem), border=1, ln=True)
     
     # Footer
     pdf.ln(10)

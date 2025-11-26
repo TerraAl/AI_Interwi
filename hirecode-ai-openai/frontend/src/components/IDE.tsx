@@ -19,6 +19,7 @@ type Props = {
     }>;
     metrics?: Record<string, number>;
   };
+  finished?: boolean;
 };
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -36,6 +37,7 @@ export default function IDE({
   onSubmit,
   running,
   results,
+  finished,
 }: Props) {
   const monacoLang = useMemo(
     () => LANGUAGE_MAP[language] ?? "python",
@@ -52,14 +54,14 @@ export default function IDE({
         <div className="flex gap-3">
           <button
             onClick={onRun}
-            disabled={running}
+            disabled={running || finished}
             className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 transition disabled:opacity-50"
           >
             Запустить
           </button>
           <button
             onClick={onSubmit}
-            disabled={running}
+            disabled={running || finished}
             className="px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 text-black font-semibold disabled:opacity-50"
           >
             Отправить

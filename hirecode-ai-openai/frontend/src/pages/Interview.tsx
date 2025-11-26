@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Sparkles } from "lucide-react";
 import IDE from "../components/IDE";
@@ -27,6 +27,22 @@ type SessionStart = {
   };
 };
 
+type Progress = {
+  tasks_completed: number;
+  total_tasks: number;
+  deadline_utc?: string;
+} | null;
+
+type Scoring = {
+  correctness: number;
+  optimality: number;
+  style: number;
+  communication: number;
+  speed: number;
+  overall: number;
+  letter: string;
+} | null;
+
 export default function Interview() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -39,32 +55,23 @@ export default function Interview() {
     Array<{ id: string; role: "user" | "ai" | "system"; content: string }>
   >([]);
   const [results, setResults] = useState<any>(null);
+  const [progress, setProgress] = useState<Progress>(null);
+  const [scoring, setScoring] = useState<Scoring>(null);
+  const [remainingSec, setRemainingSec] = useState<number | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [anticheat, setAntiCheat] = useState<Record<string, unknown>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [interviewFinished, setInterviewFinished] = useState(false);
   const socketRef = useRef<InterviewSocket>();
 
-  // Get user data from location state or localStorage
+  // Require user data from navigation state; force login on fresh visit
   useEffect(() => {
     const stateData = (location.state as any)?.userData;
-    const storageData = localStorage.getItem("userData");
-    
     if (stateData) {
       setUserData(stateData);
       setLanguage(stateData.stack);
-    } else if (storageData) {
-      try {
-        const parsed = JSON.parse(storageData);
-        setUserData(parsed);
-        setLanguage(parsed.stack);
-      } catch (e) {
-        console.error("Failed to parse userData from localStorage");
-        navigate("/");
-      }
     } else {
-      // No user data, redirect to login
-      navigate("/");
+      navigate("/login");
     }
   }, [navigate, location.state]);
 
@@ -106,9 +113,21 @@ export default function Interview() {
           position: userData.position,
         }),
       });
-      const data: SessionStart = await response.json();
+      const data: SessionStart & { progress?: Progress } = await response.json();
       if (cancelled) return;
       setSession(data);
+      setProgress(data.progress ?? null);
+      if (data.progress?.deadline_utc) {
+        const deadlineMs = Date.parse(data.progress.deadline_utc);
+        const update = () => {
+          const diff = Math.max(0, Math.floor((deadlineMs - Date.now()) / 1000));
+          setRemainingSec(diff);
+        };
+        update();
+        const timer = setInterval(update, 1000);
+        // store timer in closure
+        (window as any).__hc_timer = timer;
+      }
       setMessages([
         {
           id: crypto.randomUUID(),
@@ -126,7 +145,6 @@ export default function Interview() {
       socketRef.current = socket;
       unsubscribe = socket.onMessage((message) => {
         if (message.type === "chat:ai") {
-          // Сообщение приходит уже без <think>...</think> с бэкенда, просто добавляем его
           const content = String(message.message);
           if (content.trim().length > 0) {
             setMessages((prev) => [
@@ -145,6 +163,8 @@ export default function Interview() {
     return () => {
       cancelled = true;
       unsubscribe?.();
+      const t = (window as any).__hc_timer;
+      if (t) clearInterval(t);
       socketRef.current?.close();
       socketRef.current = undefined;
     };
@@ -171,6 +191,8 @@ export default function Interview() {
       .then((res) => res.json())
       .then((payload) => {
         setResults(payload);
+        setProgress(payload.progress ?? null);
+        setScoring(payload.scoring ?? null);
         sendEvent("code:update", { content: code });
       })
       .finally(() => {
@@ -189,6 +211,40 @@ export default function Interview() {
     },
     [code, anticheat, sendEvent],
   );
+
+  const finishedByTime = useMemo(() => remainingSec !== null && remainingSec <= 0, [remainingSec]);
+  const finishedByTasks = useMemo(
+    () => (progress?.tasks_completed ?? 0) >= (progress?.total_tasks ?? 5),
+    [progress]
+  );
+  const isFinished = interviewFinished || finishedByTime || finishedByTasks;
+
+  useEffect(() => {
+    if (session && (finishedByTime || finishedByTasks) && !interviewFinished) {
+      handleFinishInterview();
+    }
+  }, [session, finishedByTime, finishedByTasks, interviewFinished, handleFinishInterview]);
+
+  const handleNewInterview = useCallback(async () => {
+    try {
+      if (session && !isFinished) {
+        await fetch("/api/interview/finish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: session.session_id }),
+        });
+      }
+    } catch (e) {
+      console.warn("[INTERVIEW] Could not finish existing session before starting new one:", e);
+    }
+    try {
+      const t = (window as any).__hc_timer;
+      if (t) clearInterval(t);
+      socketRef.current?.close();
+    } catch {}
+    localStorage.removeItem("userData");
+    navigate("/login");
+  }, [session, isFinished, navigate]);
 
   if (!session) {
     return (
@@ -218,11 +274,27 @@ export default function Interview() {
                 {userData.position && <span> • {userData.position}</span>}
               </p>
             )}
+            {progress && (
+              <div className="mt-3">
+                <div className="text-xs text-white/60 mb-1">
+                  Задача {Math.min(progress.tasks_completed + 1, progress.total_tasks)}/{progress.total_tasks}
+                  {typeof remainingSec === 'number' && (
+                    <span className="ml-3">Осталось: {`${Math.floor(remainingSec/60).toString().padStart(2,'0')}:${(remainingSec%60).toString().padStart(2,'0')}`}</span>
+                  )}
+                </div>
+                <div className="h-2 rounded-full bg-white/10 w-64">
+                  <div
+                    className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400"
+                    style={{ width: `${(progress.tasks_completed / progress.total_tasks) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
           <select
             value={language}
             onChange={(event) => setLanguage(event.target.value)}
-            disabled={interviewFinished}
+            disabled={isFinished}
             className="ml-auto rounded-2xl bg-white/5 px-4 py-2 border border-white/10 disabled:opacity-50"
           >
             <option value="python">Python</option>
@@ -230,13 +302,21 @@ export default function Interview() {
             <option value="java">Java</option>
             <option value="cpp">C++</option>
           </select>
-          <button
-            onClick={handleFinishInterview}
-            disabled={interviewFinished}
-            className="rounded-2xl px-6 py-2 bg-red-500/80 hover:bg-red-600 disabled:bg-gray-600 text-white font-semibold transition-colors"
-          >
-            {interviewFinished ? "✓ Интервью завершено" : "Завершить интервью"}
-          </button>
+          <div className="ml-auto flex gap-2 items-center">
+            <button
+              onClick={handleNewInterview}
+              className="rounded-2xl px-6 py-2 bg-white/10 hover:bg-white/20 text-white font-semibold transition-colors"
+            >
+              Новое интервью
+            </button>
+            <button
+              onClick={handleFinishInterview}
+              disabled={isFinished}
+              className="rounded-2xl px-6 py-2 bg-red-500/80 hover:bg-red-600 disabled:bg-gray-600 text-white font-semibold transition-colors"
+            >
+              {isFinished ? "✓ Интервью завершено" : "Завершить интервью"}
+            </button>
+          </div>
         </header>
         <div className="grid grid-cols-12 gap-6 flex-1 overflow-hidden">
           <div className="col-span-3 space-y-4 overflow-y-auto">
@@ -273,7 +353,23 @@ export default function Interview() {
               onRun={handleRun}
               onSubmit={handleRun}
               results={results}
+              finished={isFinished}
             />
+            {scoring && (
+              <div className="mt-4 rounded-2xl bg-white/5 border border-white/10 p-4 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="uppercase text-white/60">Итоговая оценка</span>
+                  <span className="text-lg font-semibold">{scoring.overall.toFixed(1)} / 100 ({scoring.letter})</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mt-2 text-white/80">
+                  <div>Правильность: {scoring.correctness.toFixed(1)}</div>
+                  <div>Оптимальность: {scoring.optimality.toFixed(1)}</div>
+                  <div>Стиль: {scoring.style.toFixed(1)}</div>
+                  <div>Коммуникация: {scoring.communication.toFixed(1)}</div>
+                  <div>Скорость: {scoring.speed.toFixed(1)}</div>
+                </div>
+              </div>
+            )}
           </div>
           <div className="col-span-3 overflow-hidden">
             <AIChat messages={messages} onSend={handleSendChat} streaming={streaming} />
