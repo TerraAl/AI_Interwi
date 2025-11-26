@@ -155,5 +155,35 @@ class AIInterviewer:
         self, session_id: str, judge_result: Dict, anticheat: Any
     ) -> None:
         """Захватывает обратную связь от судьи и генерирует комментарий AI."""
-        # Можно добавить логику для генерации комментария на основе результатов
-        pass
+        try:
+            visible = judge_result.get("visible_tests", [])
+            passed = sum(1 for t in visible if t.get("passed"))
+            total = len(visible)
+            hidden = judge_result.get("hidden_tests_passed", 0)
+            ms = judge_result.get("metrics", {}).get("max_elapsed_ms", 0)
+            q = judge_result.get("code_quality", {})
+            pylint_score = q.get("pylint_score", 0)
+            trust = getattr(anticheat, "trust_score", 100)
+
+            summary = (
+                f"Результаты: {passed}/{total} видимых, скрытых пройдено: {hidden}.\n"
+                f"Макс. время: {ms:.1f} ms. Pylint: {pylint_score:.1f}. Trust: {trust:.1f}%."
+            )
+
+            follow_up = "Опиши временную и пространственную сложность решения и возможные узкие места."
+            if total > 0 and passed == total and hidden >= 1:
+                follow_up = "Все тесты пройдены. Можно ли упростить код и снизить асимптотику на худшем кейсе?"
+            elif total > 0 and passed < total:
+                follow_up = "Какие кейсы ломаются? Предложи исправление без роста сложности."
+            if trust < 70:
+                follow_up += " Также прокомментируй большие вставки и источники решения."
+
+            await self.ws_manager.broadcast(
+                session_id,
+                {"type": "chat:ai", "message": summary + "\n\n" + follow_up},
+            )
+        except Exception as e:
+            await self.ws_manager.broadcast(
+                session_id,
+                {"type": "chat:ai", "message": f"Не удалось сформировать фидбек: {e}"},
+            )

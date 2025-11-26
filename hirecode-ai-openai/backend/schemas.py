@@ -174,6 +174,8 @@ class InterviewInitRequest(BaseModel):
 class SessionStartResponse(BaseModel):
     session_id: str
     task: Dict[str, Any]
+    # Optional progress block for 5 tasks / 90 minutes
+    progress: Optional[Dict[str, Any]] = None
 
 class SubmissionRequest(BaseModel):
     session_id: str
@@ -187,6 +189,9 @@ class SubmissionResponse(BaseModel):
     hidden_tests: List[Dict[str, Any]]
     code_quality: Dict[str, Any]
     metrics: Dict[str, Any]
+    # Optional progress and scoring blocks
+    progress: Optional[Dict[str, Any]] = None
+    scoring: Optional[Dict[str, Any]] = None
 
 class InterviewEvent(BaseModel):
     type: str

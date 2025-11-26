@@ -152,12 +152,12 @@ async def create_session(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # Get first task for user
-    first_task = await adaptive_selector.select_first_task(db, current_user.id)
+    # Get first task for user (demo uses adaptive_engine)
+    first_task = adaptive_engine.pick_task(session_data.stack)
 
     session = InterviewSession(
         user_id=current_user.id,
-        current_task_id=first_task.id if first_task else None,
+        current_task_id=None,
         user_elo=session_data.user_elo
     )
 
