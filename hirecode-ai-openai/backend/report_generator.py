@@ -1,97 +1,8 @@
-from datetime import datetime
+﻿from datetime import datetime
 from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import cm
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
-from reportlab.lib import colors
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 from typing import Dict, List, Any
+from fpdf import FPDF
 import os
-
-# Utility function to handle text safely
-def safe_paragraph(text: str, style) -> Paragraph:
-    """Create a Paragraph with safe text encoding."""
-    if not isinstance(text, str):
-        text = str(text)
-    # Try to encode as latin-1; if it fails, use ASCII approximation
-    try:
-        text.encode('latin-1')
-        return Paragraph(text, style)
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        # Text contains non-latin-1 chars (Cyrillic)
-        # Transliterate or use placeholder
-        try:
-            # For Cyrillic, just pass it through — modern reportlab handles UTF-8
-            return Paragraph(text, style)
-        except:
-            # Fallback: return text as-is wrapped in <br/>
-            return Paragraph("[Non-ASCII text]", style)
-
-
-# Функция для установки шрифтов если их нет
-def setup_fonts():
-    """Установка и регистрация шрифтов для поддержки кириллицы и моноширинного шрифта"""
-    try:
-        # On Windows, try to find a system font that supports Cyrillic
-        import platform
-        system = platform.system()
-        
-        font_paths = []
-        if system == 'Windows':
-            # Windows system fonts
-            font_paths = [
-                'C:\\Windows\\Fonts\\arial.ttf',
-                'C:\\Windows\\Fonts\\calibri.ttf',
-                'C:\\Windows\\Fonts\\times.ttf',
-            ]
-        else:
-            # Unix/Linux fonts
-            font_paths = [
-                '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-                '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
-            ]
-        
-        # Try each font until one works
-        for font_path in font_paths:
-            if os.path.isfile(font_path):
-                try:
-                    pdfmetrics.registerFont(TTFont('PDFFont', font_path))
-                    # For bold, use the same font
-                    pdfmetrics.registerFont(TTFont('PDFFont-Bold', font_path))
-                    print(f"[PDF] Successfully registered font: {font_path}")
-                    return 'PDFFont', 'PDFFont-Bold', None
-                except Exception as e:
-                    print(f"[PDF] Failed to register {font_path}: {e}")
-                    continue
-        
-        # If no system fonts found, use fallback
-        print("[PDF] No suitable fonts found, using Helvetica fallback")
-        return 'Helvetica', 'Helvetica-Bold', None
-        
-    except Exception as e:
-        print(f"[PDF] Error in font setup: {e}")
-        return 'Helvetica', 'Helvetica-Bold', None
-
-DEFAULT_FONT, BOLD_FONT, MONO_FONT = setup_fonts()
-
-# Force UTF-8 encoding in reportlab
-import sys
-if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
-    try:
-        import io
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    except:
-        pass
-
-# Configure reportlab for UTF-8 support
-try:
-    import reportlab.rl_config as rl_config
-    rl_config.canvas_basefontname = 'Times-Roman'
-except:
-    pass
 
 def generate_report_pdf(
     candidate_name: str,
@@ -107,354 +18,180 @@ def generate_report_pdf(
     phone: str | None = None,
     location: str | None = None,
     position: str | None = None,
+    # Добавим путь к шрифту как аргумент (можно захардкодить внутри)
+    font_path: str = "DejaVuSans.ttf" 
 ) -> BytesIO:
-    """
-    Генерирует PDF отчет интервью с полной информацией.
     
-    Args:
-        candidate_name: Имя кандидата
-        task_title: Название задачи
-        submitted_code: Отправленный код
-        language: Язык программирования
-        test_results: Результаты тестов
-        trust_score: Оценка честности (0-100)
-        code_quality_score: Оценка качества кода
-        recommendations: Рекомендации
-        chat_history: История чата
-    
-    Returns:
-        BytesIO объект с PDF файлом
-    """
-    
-    buffer = BytesIO()
-    # Use UTF-8 encoding for Cyrillic support
-    try:
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm)
-    except TypeError:
-        # Older ReportLab versions may not support encoding parameter
-        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm)
-    story = []
-    
-    # Стили
-    styles = getSampleStyleSheet()
-
-    # Логируем входящие данные
     print(f"[PDF-GEN] Generating PDF for: {candidate_name}")
-    print(f"[PDF-GEN] Task: {task_title}")
-    print(f"[PDF-GEN] Using fonts: DEFAULT={DEFAULT_FONT}, BOLD={BOLD_FONT}")
+    
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # --- ИСПРАВЛЕНИЕ: Добавляем шрифт с поддержкой кириллицы ---
+    FONT_REGULAR = "/app/fonts/DejaVuSans.ttf"
+    FONT_BOLD = "/app//fonts/DejaVuSans-Bold.ttf"
 
-    heading_style = ParagraphStyle(
-        'CustomHeading',
-        parent=styles['Heading2'],
-        fontSize=14,
-        textColor=colors.HexColor('#0891b2'),
-        spaceAfter=12,
-        spaceBefore=12,
-        fontName=BOLD_FONT
-    )
+    if os.path.exists(FONT_REGULAR):
+        pdf.add_font("DejaVu", "", FONT_REGULAR, uni=True)
+
+        if os.path.exists(FONT_BOLD):
+            pdf.add_font("DejaVu", "B", FONT_BOLD, uni=True)
+        else:
+            pdf.add_font("DejaVu", "B", FONT_REGULAR, uni=True)
+
+        main_font = "DejaVu"
+
+    else:
+        raise RuntimeError("Missing DejaVuSans.ttf — Unicode PDF cannot be generated.")
+
+    # -----------------------------------------------------------
+
+    # Используем main_font вместо "Helvetica"
+    pdf.set_font(main_font, "B", 20)
+    pdf.cell(0, 10, "HireCode AI", ln=True, align="C")
     
-    normal_style = ParagraphStyle(
-        'CustomNormal',
-        parent=styles['Normal'],
-        fontSize=10,
-        spaceAfter=8,
-        alignment=TA_LEFT,
-        fontName=DEFAULT_FONT
-    )
+    pdf.set_font(main_font, "", 12)
+    pdf.cell(0, 10, "Report", ln=True, align="C")
+    pdf.ln(10)
     
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=18,
-        textColor=colors.HexColor('#0891b2'),
-        spaceAfter=8,
-        spaceBefore=0,
-        fontName=BOLD_FONT,
-        alignment=TA_CENTER
-    )
+    # Candidate info section
+    pdf.set_font(main_font, "B", 14)
+    pdf.cell(0, 10, "Candidate Information", ln=True) # Если тут будет русский текст - сработает новый шрифт
+    pdf.set_font(main_font, "", 11)
     
-    # Заголовок
-    story.append(Paragraph("HireCode AI", title_style))
-    story.append(Paragraph("Отчет об интервью", styles['Heading2']))
-    story.append(Spacer(1, 0.5*cm))
+    col_width = 40
+    row_height = 8
     
-    # Информация о кандидате
-    story.append(Paragraph("Информация о кандидате", heading_style))
-    info_data = [
-           ["Имя кандидата:", candidate_name],
-           ["Задача:", task_title],
-           ["Язык программирования:", language],
-           ["Дата завершения:", datetime.now().strftime("%d.%m.%Y %H:%M")],
+    info_items = [
+        ("Candidate Name:", candidate_name), # Здесь была ошибка из-за имени на русском
+        ("Task:", task_title),
+        ("Language:", language),
+        ("Completion Date:", datetime.now().strftime("%d.%m.%Y %H:%M")),
     ]
-    # Prefer explicit contact parameters; fall back to `_contact` inside test_results if provided
+    
+    # ... (остальной код получения контактов без изменений) ...
     contact_from_results = {}
     if isinstance(test_results, dict):
         contact_from_results = test_results.get('_contact', {}) or {}
-
-    final_email = email or contact_from_results.get('email')
-    final_phone = phone or contact_from_results.get('phone')
-    final_location = location or contact_from_results.get('location')
-    final_position = position or contact_from_results.get('position')
-
-    if final_email:
-        info_data.append(["Email:", final_email])
-    if final_phone:
-        info_data.append(["Телефон:", final_phone])
-    if final_location:
-        info_data.append(["Город/Локация:", final_location])
-    if final_position:
-        info_data.append(["Должность:", final_position])
     
-    # Convert all strings to paragraphs with proper styling
-    styled_info_data = []
-    for label, value in info_data:
-        styled_info_data.append([
-            safe_paragraph(label, normal_style),
-            safe_paragraph(str(value) if not isinstance(value, str) else value, normal_style)
-        ])
+    if email or contact_from_results.get('email'):
+        info_items.append(("Email:", email or contact_from_results.get('email')))
+    if phone or contact_from_results.get('phone'):
+        info_items.append(("Phone:", phone or contact_from_results.get('phone')))
+    if location or contact_from_results.get('location'):
+        info_items.append(("Location:", location or contact_from_results.get('location')))
+    if position or contact_from_results.get('position'):
+        info_items.append(("Position:", position or contact_from_results.get('position')))
     
-    info_table = Table(styled_info_data, colWidths=[4*cm, 12*cm])
-    info_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#ecf0f1')),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('FONTNAME', (0, 0), (0, -1), BOLD_FONT),
-        ('FONTNAME', (0, 0), (-1, -1), DEFAULT_FONT),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-    ]))
-    story.append(info_table)
-    story.append(Spacer(1, 0.8*cm))
+    # Draw info table
+    for label, value in info_items:
+        pdf.set_font(main_font, "B", 10)
+        pdf.cell(col_width, row_height, label, border=1)
+        pdf.set_font(main_font, "", 10)
+        # str(value) теперь безопасно выведет кириллицу
+        pdf.cell(0, row_height, str(value)[:80], border=1, ln=True)
     
-    # Результаты тестирования
-    story.append(Paragraph("Результаты тестирования", heading_style))
+    pdf.ln(5)
     
-    # Handle both judge format and admin format for test_results
-    visible_tests = []  # Initialize
+    # Test Results section
+    pdf.set_font(main_font, "B", 14)
+    pdf.cell(0, 10, "Test Results", ln=True)
+    pdf.set_font(main_font, "", 11)
+    
+    # ... (Логика подсчета тестов без изменений) ...
+    visible_tests = []
     if 'visible_tests' in test_results:
-        # Judge format: visible_tests is a list
         visible_tests = test_results.get('visible_tests', [])
         passed_tests = sum(1 for t in visible_tests if t.get('passed', False))
         total_tests = len(visible_tests)
         hidden_passed = test_results.get('hidden_tests_passed', 0)
     else:
-        # Admin format: passed_tests and total_tests are direct keys
         passed_tests = test_results.get('passed_tests', 0)
         total_tests = test_results.get('total_tests', 0)
         hidden_passed = 0
-        visible_tests = []  # Explicitly set empty for admin format
-    
-    # Get execution time
+        
     if 'metrics' in test_results and 'max_elapsed_ms' in test_results.get('metrics', {}):
-        execution_time = test_results['metrics']['max_elapsed_ms'] / 1000.0  # Convert ms to seconds
+        execution_time = test_results['metrics']['max_elapsed_ms'] / 1000.0
     else:
         execution_time = test_results.get('execution_time', 'N/A')
-    
-    test_data = [
-        [Paragraph("<b>Метрика</b>", normal_style), Paragraph("<b>Значение</b>", normal_style)],
-        [Paragraph("Пройдено тестов", normal_style), Paragraph(f"{passed_tests}/{total_tests}", normal_style)],
-        [Paragraph("Процент успеха", normal_style), Paragraph(f"{(passed_tests/total_tests*100) if total_tests > 0 else 0:.1f}%", normal_style)],
-        [Paragraph("Время выполнения", normal_style), Paragraph(f"{execution_time:.2f}с" if isinstance(execution_time, (int, float)) else execution_time, normal_style)],
-        [Paragraph("Качество кода", normal_style), Paragraph(f"{code_quality_score:.1f}/10" if code_quality_score else "Н/А", normal_style)],
-    ]
-    if hidden_passed > 0:
-        test_data.append([Paragraph("Пройдено скрытых тестов", normal_style), Paragraph(str(hidden_passed), normal_style)])
-    
-    test_table = Table(test_data, colWidths=[7*cm, 9*cm])
-    test_table.setStyle(TableStyle([
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('FONTNAME', (0, 0), (-1, -1), DEFAULT_FONT),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0891b2')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('FONTNAME', (0, 0), (-1, 0), BOLD_FONT),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
-        ('TOPPADDING', (0, 0), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-    ]))
-    story.append(test_table)
-    story.append(Spacer(1, 0.8*cm))
-    
-    # Detailed test results (if visible tests available)
-    if visible_tests:
-        story.append(Paragraph("Детальные результаты тестов", heading_style))
-        test_details_data = [
-            [Paragraph("<b>Тест</b>", normal_style), Paragraph("<b>Статус</b>", normal_style), Paragraph("<b>Время (мс)</b>", normal_style)]
-        ]
-        for i, test in enumerate(visible_tests):
-            status = "✓ Пройден" if test.get("passed", False) else "✗ Не пройден"
-            status_color = "#10b981" if test.get("passed", False) else "#ef4444"
-            test_details_data.append([
-                Paragraph(f"Тест {i+1}", normal_style),
-                Paragraph(f'<font color="{status_color}">{status}</font>', normal_style),
-                Paragraph(str(test.get("elapsed_ms", "N/A")), normal_style)
-            ])
-        
-        test_details_table = Table(test_details_data, colWidths=[3*cm, 10*cm, 3*cm])
-        test_details_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0891b2')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('FONTNAME', (0, 0), (-1, 0), BOLD_FONT),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('PADDING', (0, 0), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-        ]))
-        story.append(test_details_table)
-        story.append(Spacer(1, 0.8*cm))
-    
-    # Trust score (Anti-Cheat)
-    story.append(Paragraph("Оценка честности (Анти-чит)", heading_style))
-    trust_color = colors.HexColor('#10b981') if trust_score >= 80 else (
-        colors.HexColor('#f59e0b') if trust_score >= 50 else colors.HexColor('#ef4444')
-    )
-    trust_status = "✓ Легитимная работа" if trust_score >= 80 else (
-        "⚠ Возможны проблемы" if trust_score >= 50 else "✗ Обнаружены нарушения"
-    )
 
-    trust_data = [
-        [Paragraph("<b>Оценка честности:</b>", normal_style), Paragraph(f'<font color="#{trust_color.hexval()}">{trust_score:.1f}%</font>', normal_style)],
-        [Paragraph("<b>Статус:</b>", normal_style), Paragraph(f'<font color="#{trust_color.hexval()}">{trust_status}</font>', normal_style)],
+    # Test results table
+    test_data = [
+        ("Metric", "Value"),
+        ("Tests Passed", f"{passed_tests}/{total_tests}"),
+        ("Success Rate", f"{(passed_tests/total_tests*100) if total_tests > 0 else 0:.1f}%"),
+        ("Execution Time", f"{execution_time:.2f}s" if isinstance(execution_time, (int, float)) else str(execution_time)),
+        ("Code Quality", f"{code_quality_score:.1f}/10" if code_quality_score else "N/A"),
     ]
-    trust_table = Table(trust_data, colWidths=[4*cm, 12*cm])
-    trust_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#ecf0f1')),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('FONTNAME', (0, 0), (-1, -1), DEFAULT_FONT),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('PADDING', (0, 0), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-    ]))
-    story.append(trust_table)
-    story.append(Spacer(1, 0.8*cm))
     
-    # Submitted code
-    story.append(Paragraph("Отправленное решение", heading_style))
-    code_lines = submitted_code.split('\n')
-    code_display = '\n'.join(code_lines[:30])  # First 30 lines
-    if len(code_lines) > 30:
-        code_display += '\n... (code truncated)'
+    if hidden_passed > 0:
+        test_data.append(("Hidden Tests Passed", str(hidden_passed)))
     
-    code_para = Paragraph(
-        f"<font face='Courier' size='8'>{code_display.replace('<', '&lt;').replace('>', '&gt;')}</font>",
-        ParagraphStyle(
-            'Code',
-            parent=styles['Normal'],
-            fontSize=8,
-            fontName='Courier',
-            textColor=colors.HexColor('#333333'),
-            backColor=colors.HexColor('#f5f5f5'),
-            spaceAfter=8,
-        )
-    )
-    code_frame = Table([['<font face="Courier" size="8">' + code_display.replace('<', '&lt;').replace('>', '&gt;') + '</font>']], 
-                       colWidths=[15*cm])
-    code_frame.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f5f5f5')),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, -1), 'Courier'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
-        ('PADDING', (0, 0), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-    ]))
-    story.append(code_frame)
-    story.append(Spacer(1, 0.8*cm))
+    col_width_metric = 50
+    col_width_value = 130
     
-    # Recommendations
-    story.append(Paragraph("Рекомендации", heading_style))
+    for i, (metric, value) in enumerate(test_data):
+        pdf.set_font(main_font, "B" if i == 0 else "", 10)
+        pdf.cell(col_width_metric, row_height, metric, border=1)
+        pdf.cell(col_width_value, row_height, str(value), border=1, ln=True)
+    
+    pdf.ln(5)
+    
+    # Trust Score section
+    pdf.set_font(main_font, "B", 14)
+    pdf.cell(0, 10, "Anti-Cheat Score", ln=True)
+    pdf.set_font(main_font, "", 11)
+    
+    trust_status = "PASS" if trust_score >= 80 else ("WARNING" if trust_score >= 50 else "FAIL")
+    
+    pdf.set_font(main_font, "B", 10)
+    pdf.cell(50, row_height, "Trust Score:", border=1)
+    pdf.cell(130, row_height, f"{trust_score:.1f}%", border=1, ln=True)
+    pdf.cell(50, row_height, "Status:", border=1)
+    pdf.cell(130, row_height, trust_status, border=1, ln=True)
+    
+    pdf.ln(5)
+    
+    # Recommendations section
+    pdf.set_font(main_font, "B", 14)
+    pdf.cell(0, 10, "Recommendations", ln=True)
+    pdf.set_font(main_font, "", 11)
+    
     if recommendations and len(recommendations) > 0:
-        for i, rec in enumerate(recommendations[:10], 1):  # up to 10 recommendations
-            story.append(Paragraph(f"• {rec}", normal_style))
+        for rec in recommendations[:5]:
+            # Важно: Рекомендации часто на русском, здесь шрифт критичен
+            pdf.multi_cell(0, 6, f"- {rec[:70]}")
     else:
-        story.append(Paragraph("Отличное решение! Рекомендаций нет.", normal_style))
-    story.append(Spacer(1, 0.8*cm))
+        pdf.cell(0, 6, "Excellent solution! No recommendations.", ln=True)
     
-    # Chat history (brief)
-    story.append(Paragraph("История чата (сокращенно)", heading_style))
-    if chat_history and len(chat_history) > 0:
-        chat_data = [[Paragraph("<b>Интервьюер</b>", normal_style), Paragraph("<b>Вопрос/Ответ</b>", normal_style)]]
-        for msg in chat_history[-6:]:  # last 6 messages
-            sender = "Кандидат" if msg.get('role') == 'user' else "Интервьюер"
-            content = msg.get('content', '')[:100]  # first 100 chars
-            if len(msg.get('content', '')) > 100:
-                content += '...'
-            chat_data.append([Paragraph(sender, normal_style), Paragraph(content, normal_style)])
-        
-        chat_table = Table(chat_data, colWidths=[3*cm, 13*cm])
-        chat_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0891b2')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (0, -1), 'CENTER'),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), BOLD_FONT),
-            ('FONTNAME', (1, 1), (-1, -1), DEFAULT_FONT),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ]))
-        story.append(chat_table)
-    else:
-        story.append(Paragraph("История чата пуста", normal_style))
+    pdf.ln(5)
     
-    story.append(Spacer(1, 1*cm))
+    # Final score
+    pdf.set_font(main_font, "B", 14)
+    pdf.cell(0, 10, "Final Score", ln=True)
+    pdf.set_font(main_font, "", 11)
     
-    # Итоговый вывод
-    story.append(Paragraph("Итоговая оценка", heading_style))
-    
-    # Calculate overall score with proper weighting
-    # Weighting: Tests 40%, Trust 30%, Code Quality 30%
     test_score = (passed_tests / total_tests * 100) if total_tests > 0 else 0
     code_quality_normalized = (code_quality_score * 10) if code_quality_score else 0
-    
     overall_score = (test_score * 0.4 + trust_score * 0.3 + code_quality_normalized * 0.3)
     
-    result_color = colors.HexColor('#10b981') if overall_score >= 75 else (
-        colors.HexColor('#f59e0b') if overall_score >= 50 else colors.HexColor('#ef4444')
-    )
+    result_text = "RECOMMENDED" if overall_score >= 75 else ("MAYBE" if overall_score >= 50 else "NOT RECOMMENDED")
     
-    result_text = "Рекомендуется на следующий этап ✓" if overall_score >= 75 else (
-        "Требует дополнительного рассмотрения" if overall_score >= 50 else "Не рекомендуется ✗"
-    )
+    pdf.set_font(main_font, "B", 10)
+    pdf.cell(50, row_height, "Overall Score:", border=1)
+    pdf.cell(130, row_height, f"{overall_score:.1f}/100", border=1, ln=True)
+    pdf.cell(50, row_height, "Decision:", border=1)
+    pdf.cell(130, row_height, result_text, border=1, ln=True)
     
-    final_data = [
-        [Paragraph("<b>Итоговый результат:</b>", normal_style), Paragraph(f'<font color="#{result_color.hexval()}">{overall_score:.1f}/100</font>', normal_style)],
-        [Paragraph("<b>Решение:</b>", normal_style), Paragraph(f'<font color="#{result_color.hexval()}">{result_text}</font>', normal_style)],
-    ]
-    final_table = Table(final_data, colWidths=[4*cm, 12*cm])
-    final_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#ecf0f1')),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('FONTNAME', (0, 0), (-1, -1), DEFAULT_FONT),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('PADDING', (0, 0), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-    ]))
-    story.append(final_table)
+    # Footer
+    pdf.ln(10)
+    pdf.set_font(main_font, "", 8)
+    pdf.cell(0, 5, f"Report created: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}", align="C", ln=True)
+    pdf.cell(0, 5, "HireCode AI - Intelligent Candidate Evaluation System", align="C", ln=True)
     
-    # Подпись
-    story.append(Spacer(1, 1*cm))
-    story.append(Paragraph("_" * 50, normal_style))
-    story.append(Paragraph(f"Отчет создан: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}", 
-                          ParagraphStyle('Footer', parent=styles['Normal'], fontSize=9, textColor=colors.grey)))
-    story.append(Paragraph("HireCode AI - Интеллектуальная система оценки кандидатов", 
-                          ParagraphStyle('Footer', parent=styles['Normal'], fontSize=9, textColor=colors.grey)))
-    
-    # Построение PDF
-    doc.build(story)
+    pdf_output = pdf.output()
+    buffer = BytesIO(pdf_output)
     buffer.seek(0)
+    
+    print(f"[PDF-GEN] PDF generated successfully, size: {len(pdf_output)} bytes")
     return buffer
-
-print(f"[PDF] Fonts in use: DEFAULT={DEFAULT_FONT}, BOLD={BOLD_FONT}")

@@ -14,6 +14,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
+from urllib.parse import quote
 import uvicorn
 
 from models import Base, User, InterviewSession, Task
@@ -531,45 +532,38 @@ async def finish_interview(request: dict):
 
 @app.post("/api/interview/report/pdf")
 async def generate_pdf_report(request: ReportGenerateRequest):
-    """
-    Генерирует и возвращает PDF отчет интервью.
-    Доступно как для пользователя, так и для админа.
-    """
     try:
-        # Prepare test_results copy; determine contact fields from Redis or request
+        # -------------------------------
+        # 1. Загрузить контактную инфу (Redis → request override)
+        # -------------------------------
         test_results = dict(request.test_results or {})
-        email = None
-        phone = None
-        location = None
-        position = None
+
+        email = request.email
+        phone = request.phone
+        location = request.location
+        position = request.position
 
         if request.session_id:
             try:
                 data = await redis_client.hgetall(f"session:{request.session_id}")
-                def get_val(d, k):
-                    v = d.get(k.encode() if isinstance(k, str) else k)
-                    if isinstance(v, bytes):
-                        return v.decode()
-                    return v
-                email = get_val(data, 'email')
-                phone = get_val(data, 'phone')
-                location = get_val(data, 'location')
-                position = get_val(data, 'position')
-                print(f"[REPORT] Loaded contact info from Redis for session {request.session_id}: {', '.join([k for k in ['email','phone','location','position'] if locals()[k]])}")
+
+                def get_val(key):
+                    v = data.get(key.encode())
+                    return v.decode() if isinstance(v, bytes) else v
+
+                # Redis → только если не передано в запросе
+                email = email or get_val("email")
+                phone = phone or get_val("phone")
+                location = location or get_val("location")
+                position = position or get_val("position")
+
+                print(f"[REPORT] Loaded contact info from Redis for session {request.session_id}")
             except Exception as e:
-                print(f"[REPORT] Could not load contact info from Redis for session {request.session_id}: {e}")
+                print(f"[REPORT] Redis fetch failed: {e}")
 
-        # Request fields override Redis
-        if request.email:
-            email = request.email
-        if request.phone:
-            phone = request.phone
-        if request.location:
-            location = request.location
-        if request.position:
-            position = request.position
-
-        # Генерируем PDF with explicit contact params
+        # -------------------------------
+        # 2. Генерация PDF
+        # -------------------------------
         pdf_buffer = generate_report_pdf(
             candidate_name=request.candidate_name,
             task_title=request.task_title,
@@ -585,31 +579,44 @@ async def generate_pdf_report(request: ReportGenerateRequest):
             location=location,
             position=position,
         )
-        
-        # Логируем создание отчета
+
         print(f"[REPORT] Generated PDF report for {request.candidate_name}")
-        
-        # Подготавливаем PDF для скачивания
+
+        # -------------------------------
+        # 3. Корректная генерация имени файла
+        # -------------------------------
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # ASCII fallback name — обязательно
+        ascii_filename = f"report_{ts}.pdf"
+
+        # UTF-8 filename
+        utf8_filename = quote(f"report_{request.candidate_name}_{ts}.pdf")
+
+        content_disp = (
+            f'attachment; filename="{ascii_filename}"; '
+            f"filename*=UTF-8''{utf8_filename}"
+        )
+
+        # -------------------------------
+        # 4. Возврат PDF
+        # -------------------------------
         pdf_bytes = pdf_buffer.getvalue()
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"report_{request.candidate_name}_{timestamp}.pdf"
-        
-        # Возвращаем PDF как файл с правильными headers
+
         return StreamingResponse(
             iter([pdf_bytes]),
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Disposition": content_disp,
                 "Content-Length": str(len(pdf_bytes)),
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
                 "Expires": "0",
             },
         )
+
     except Exception as e:
         print(f"[ERROR] Failed to generate PDF report: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
 
 
