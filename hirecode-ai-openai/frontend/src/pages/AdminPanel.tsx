@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../components/ui/button";
 import { Eye, FileText, Users, Plus, RefreshCw, Download } from "lucide-react";
 
@@ -78,11 +78,45 @@ export default function AdminPanel() {
 
   useEffect(() => {
     fetchSessions();
-    // Обновляем данные сессий каждые 3 секунды для получения актуальной информации о trust_score
+    // Websocket for admin real-time updates
+    const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+    const host = location.hostname;
+    const backendPort = (import.meta as any).env?.VITE_BACKEND_PORT ?? '8000';
+    const wsUrl = `${protocol}://${host}:${backendPort}/ws/admin`;
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data?.type === 'admin:update' && data.session?.id) {
+            setSessions((prev) => {
+              const map = new Map(prev.map(s => [s.id, s]));
+              const incoming = data.session as SessionRow;
+              const old = map.get(incoming.id) || {} as SessionRow;
+              map.set(incoming.id, { ...old, ...incoming });
+              return Array.from(map.values());
+            });
+          }
+        } catch {}
+      };
+    } catch {}
+
+    // Fallback polling every 3s to catch missed events
     const interval = setInterval(() => {
       fetchSessions();
     }, 3000);
-    return () => clearInterval(interval);
+
+    // Local 1s ticker to refresh remaining time UI without polling
+    const ticker = setInterval(() => {
+      setSessions((prev) => [...prev]);
+    }, 1000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(ticker);
+      try { ws?.close(); } catch {}
+    };
   }, []);
 
   const handleSubmit = async (event: FormEvent) => {

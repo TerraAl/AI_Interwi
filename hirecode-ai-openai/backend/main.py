@@ -90,6 +90,35 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan, title="HireCode AI API", version="1.0.0")
 
+# Helper to broadcast admin updates
+async def broadcast_admin_session(session_id: str):
+    try:
+        data = await redis_client.hgetall(f"session:{session_id}")
+        if not data:
+            return
+        def _g(key: str, default: str = ""):
+            v = data.get(key.encode())
+            if isinstance(v, bytes):
+                return v.decode()
+            return v if v is not None else default
+        payload = {
+            "id": session_id,
+            "candidate": _g("candidate", "Unknown"),
+            "stack": _g("stack", "python"),
+            "status": _g("status", "active"),
+            "trust_score": float(_g("trust_score", "100") or 100),
+            "task_title": _g("task_title", ""),
+            "created_at": _g("created_at", ""),
+            "tasks_completed": int(_g("tasks_completed", "0") or 0),
+            "total_tasks": int(_g("total_tasks", "5") or 5),
+            "deadline_utc": _g("deadline_utc", ""),
+            "latest_score": _g("latest_score", ""),
+            "letter_grade": _g("letter_grade", ""),
+        }
+        await ws_manager.broadcast("__admin__", {"type": "admin:update", "session": payload})
+    except Exception as e:
+        print(f"[ADMIN-WS] Failed to broadcast session {session_id}: {e}")
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -220,7 +249,9 @@ async def start_interview(
     session_id = str(session.id)
     anticheat_service.bootstrap_session(session_id)
     now = datetime.utcnow().isoformat()
-    deadline_utc = (datetime.utcnow() + timedelta(minutes=90)).isoformat()
+    # Use strict ISO 8601 UTC format parsable by browsers
+    deadline_dt = datetime.utcnow() + timedelta(minutes=90)
+    deadline_utc = deadline_dt.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     # Initialize empty test results
     empty_result = {
@@ -249,6 +280,8 @@ async def start_interview(
         },
     )
     print(f"[SESSION] Created session {session_id} with empty test results initialized")
+    # Broadcast to admin listeners
+    await broadcast_admin_session(session_id)
     progress = {"tasks_completed": 0, "total_tasks": 5, "deadline_utc": deadline_utc}
     return SessionStartResponse(session_id=session_id, task=task, progress=progress)
 
@@ -584,6 +617,8 @@ async def interview_ws(websocket: WebSocket, session_id: str) -> None:
                     mapping={"trust_score": str(round(snapshot.trust_score, 2))},
                 )
                 print(f"[ANTICHEAT] Saved trust_score: {snapshot.trust_score} to Redis")
+                # Notify admins in real-time
+                await broadcast_admin_session(session_id)
                 # Примечание: trust_score в БД обновляется при завершении интервью
                 
                 if event.type == "anticheat:paste" and event.payload.get("chars", 0) >= 600:
@@ -606,6 +641,8 @@ async def interview_ws(websocket: WebSocket, session_id: str) -> None:
                 "trust_score": str(round(final_trust_score, 2)),
             },
         )
+        # Notify admins on disconnect completion
+        await broadcast_admin_session(session_id)
 
 
 @app.post("/api/interview/finish")
@@ -623,11 +660,26 @@ async def finish_interview(request: dict):
             "completed"
         )
         print(f"[FINISH] Interview session {session_id} marked as completed")
+        # Notify admins explicitly
+        await broadcast_admin_session(session_id)
         
         return {"status": "ok", "message": "Interview finished"}
     except Exception as e:
         print(f"[FINISH] Error finishing interview: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.websocket("/ws/admin")
+async def admin_ws(websocket: WebSocket):
+    # Single group for admin updates
+    await ws_manager.connect("__admin__", websocket)
+    try:
+        await websocket.accept()
+        await websocket.send_json({"type": "admin:connected"})
+        async for _ in websocket.iter_text():
+            # Admin channel is broadcast-only; ignore incoming messages
+            pass
+    except WebSocketDisconnect:
+        ws_manager.disconnect("__admin__", websocket)
 
 @app.post("/api/interview/report/pdf")
 async def generate_pdf_report(request: ReportGenerateRequest):
