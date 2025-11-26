@@ -88,6 +88,8 @@ class AIInterviewer:
         self, session_id: str, ws_manager: WebsocketManager, content: str
     ) -> None:
         """Потоковая отправка через OpenAI."""
+        import re
+        
         self.active_streams[session_id] = True
         await ws_manager.broadcast(
             session_id, {"type": "chat:ai_status", "status": "started"}
@@ -118,17 +120,23 @@ class AIInterviewer:
                 if chunk.choices and chunk.choices[0].delta.content:
                     content_chunk = chunk.choices[0].delta.content
                     full_response += content_chunk
-                    await ws_manager.broadcast(
-                        session_id,
-                        {
-                            "type": "chat:ai",
-                            "message": content_chunk,
-                            "stream": True,
-                        },
-                    )
+
+            # Удаляем все области <think>...</think> из полного ответа после завершения потока
+            cleaned_response = re.sub(r'<think>[\s\S]*?<\/think>', '', full_response, flags=re.IGNORECASE).strip()
+            
+            # Отправляем чистый ответ (только один раз, после удаления думок)
+            if cleaned_response:
+                await ws_manager.broadcast(
+                    session_id,
+                    {
+                        "type": "chat:ai",
+                        "message": cleaned_response,
+                        "stream": False,
+                    },
+                )
 
             if self.chat_logger:
-                await self.chat_logger(session_id, "ai", full_response)
+                await self.chat_logger(session_id, "ai", cleaned_response)
 
         except Exception as e:
             error_msg = f"Ошибка при генерации ответа: {str(e)}"

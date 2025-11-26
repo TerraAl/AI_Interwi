@@ -1,17 +1,20 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Button } from "../components/ui/button";
-import { Eye, FileText, Users, Plus, RefreshCw } from "lucide-react";
+import { Eye, FileText, Users, Plus, RefreshCw, Download } from "lucide-react";
 
 type SessionRow = {
   id: string;
   candidate: string;
   stack: string;
   status: string;
-  trust_score: number;
+  trust_score: number | string;
   created_at?: string;
   task_title?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  position?: string;
 };
-
 type TaskForm = {
   id: string;
   title: string;
@@ -34,9 +37,35 @@ export default function AdminPanel() {
     try {
       const res = await fetch("/api/admin/sessions");
       const data = await res.json();
-      setSessions(data.sessions || []);
+      console.log("[ADMIN-FETCH] Received sessions:", data);
+      
+      // Дедупликация по candidate имени - показываем только последнюю сессию каждого кандидата
+      const sessionsData = data.sessions || [];
+      console.log("[ADMIN-FETCH] Sessions count before dedup:", sessionsData.length);
+      
+      // Sort sessions by created_at (newer first) to ensure we pick the latest
+      const sortedSessions = [...sessionsData].sort((a, b) => {
+        const aTime = new Date(a.created_at || 0).getTime();
+        const bTime = new Date(b.created_at || 0).getTime();
+        return bTime - aTime; // Descending order (newest first)
+      });
+      
+      // Use a Map to keep only the first (latest) occurrence of each candidate
+      const sessionMap = new Map<string, SessionRow>();
+      
+      for (const session of sortedSessions) {
+        const candidate = session.candidate;
+        if (!sessionMap.has(candidate)) {
+          sessionMap.set(candidate, session);
+          console.log("[ADMIN-FETCH] Keeping latest session for:", candidate, "ID:", session.id, "created_at:", session.created_at);
+        }
+      }
+      
+      const uniqueSessions = Array.from(sessionMap.values());
+      console.log("[ADMIN-FETCH] Unique sessions count:", uniqueSessions.length);
+      setSessions(uniqueSessions);
     } catch (error) {
-      console.error("Failed to fetch sessions:", error);
+      console.error("[ADMIN-FETCH] Failed to fetch sessions:", error);
     } finally {
       setLoading(false);
     }
@@ -44,6 +73,11 @@ export default function AdminPanel() {
 
   useEffect(() => {
     fetchSessions();
+    // Обновляем данные сессий каждые 3 секунды для получения актуальной информации о trust_score
+    const interval = setInterval(() => {
+      fetchSessions();
+    }, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSubmit = async (event: FormEvent) => {
@@ -74,15 +108,82 @@ export default function AdminPanel() {
     switch (status.toLowerCase()) {
       case 'completed': return 'text-green-400';
       case 'in_progress': return 'text-yellow-400';
+      case 'active': return 'text-blue-400';
       case 'failed': return 'text-red-400';
       default: return 'text-gray-400';
     }
   };
 
-  const getTrustScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-400';
-    if (score >= 60) return 'text-yellow-400';
+  const getTrustScoreColor = (score: number | string) => {
+    const numScore = typeof score === 'number' ? score : parseFloat(String(score) || '0');
+    if (numScore >= 80) return 'text-green-400';
+    if (numScore >= 60) return 'text-yellow-400';
     return 'text-red-400';
+  };
+
+  const handleDownloadReport = async (session: SessionRow) => {
+    try {
+      console.log("[ADMIN] Downloading report for session:", session);
+
+      // Fetch detailed session data including test results
+      const detailRes = await fetch(`/api/admin/sessions/${session.id}`);
+      if (!detailRes.ok) {
+        throw new Error(`Failed to fetch session details: ${detailRes.statusText}`);
+      }
+      const sessionDetails = await detailRes.json();
+      console.log("[ADMIN] Session details:", sessionDetails);
+
+      const response = await fetch("/api/interview/report/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: session.id,
+          candidate_name: session.candidate,
+          task_title: sessionDetails.task_title || session.task_title || "Unknown Task",
+          submitted_code: "# Code from session (full code not available in admin view)",
+          language: session.stack || "python",
+          test_results: sessionDetails.test_results || { passed_tests: 0, total_tests: 0 },
+          trust_score: typeof session.trust_score === 'number' 
+            ? session.trust_score 
+            : parseFloat(String(session.trust_score) || '100'),
+          code_quality_score: sessionDetails.test_results?.code_quality || 0,
+          recommendations: [],
+          chat_history: [],
+        }),
+      });
+
+      console.log("[ADMIN] Response status:", response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("[ADMIN] Error response:", errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const blob = await response.blob();
+      console.log("[ADMIN] Blob size:", blob.size, "bytes");
+
+      if (blob.size === 0) {
+        throw new Error("PDF файл пустой");
+      }
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `report_${session.candidate.replace(/\s+/g, "_")}_${new Date().getTime()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        console.log("[ADMIN] Report downloaded successfully");
+      }, 100);
+    } catch (error) {
+      console.error("[ADMIN] Error downloading PDF:", error);
+      const errorMessage = error instanceof Error ? error.message : "Неизвестная ошибка";
+      alert(`Ошибка при создании отчета: ${errorMessage}`);
+    }
   };
 
   return (
@@ -219,6 +320,8 @@ export default function AdminPanel() {
               <tr>
                 <th className="py-3 px-4">ID</th>
                 <th className="py-3 px-4">Кандидат</th>
+                <th className="py-3 px-4">Email</th>
+                <th className="py-3 px-4">Телефон</th>
                 <th className="py-3 px-4">Стек</th>
                 <th className="py-3 px-4">Статус</th>
                 <th className="py-3 px-4">Доверие</th>
@@ -231,32 +334,38 @@ export default function AdminPanel() {
                   <td className="py-3 px-4 font-mono text-xs">
                     {row.id.slice(0, 8)}…
                   </td>
-                  <td className="py-3 px-4 font-medium">{row.candidate}</td>
-                  <td className="py-3 px-4">
-                    <span className="px-2 py-1 rounded-full bg-white/10 text-xs uppercase">
-                      {row.stack}
-                    </span>
+                    <td className="py-3 px-4 font-medium">{row.candidate}</td>
+                    <td className="py-3 px-4">{row.email || "-"}</td>
+                    <td className="py-3 px-4">{row.phone || "-"}</td>
+                    <td className="py-3 px-4">
+                      <span className="px-2 py-1 rounded-full bg-white/10 text-xs uppercase">
+                        {row.stack}
+                      </span>
                   </td>
                   <td className="py-3 px-4">
                     <span className={`capitalize ${getStatusColor(row.status)}`}>
                       {row.status === 'completed' ? 'Завершено' :
                        row.status === 'in_progress' ? 'В процессе' :
-                       row.status === 'failed' ? 'Ошибка' : row.status}
+                       row.status === 'failed' ? 'Ошибка' :
+                       row.status === 'active' ? 'Активно' : row.status}
                     </span>
                   </td>
                   <td className="py-3 px-4">
                     <span className={`font-semibold ${getTrustScoreColor(row.trust_score)}`}>
-                      {row.trust_score.toFixed(1)}%
+                      {typeof row.trust_score === 'number' 
+                        ? row.trust_score.toFixed(1) 
+                        : parseFloat(String(row.trust_score) || '0').toFixed(1)}%
                     </span>
                   </td>
                   <td className="py-3 px-4">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="flex items-center gap-1 text-blue-400 hover:text-blue-300"
+                      className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
+                      onClick={() => handleDownloadReport(row)}
                     >
-                      <Eye size={14} />
-                      Просмотр
+                      <Download size={14} />
+                      Отчет
                     </Button>
                   </td>
                 </tr>

@@ -30,24 +30,33 @@ class AntiCheatService:
         event_type = event.type if hasattr(event, 'type') else event.get("type", "unknown")
         payload = event.payload if hasattr(event, 'payload') else event.get("payload", {})
         
-        severity = 0.1
-        if event_type == "anticheat:paste":
-            chars = payload.get("chars", 0)
-            if chars > 300:
-                severity = min(1.0, (chars - 300) / 300.0)
-        elif event_type in ["anticheat:devtools", "anticheat:tab_switch"]:
-            severity = 0.3
+        # Используем penalty из события, если его нет - вычисляем severity
+        penalty = payload.get("penalty", 0)
+        
+        # Если penalty не указан, вычисляем его по severity правилам
+        if penalty == 0:
+            severity = 0.1
+            if event_type == "anticheat:paste":
+                chars = payload.get("chars", 0)
+                if chars > 300:
+                    severity = min(1.0, (chars - 300) / 300.0)
+            elif event_type in ["anticheat:devtools", "anticheat:tab_switch", "anticheat:tab_blur"]:
+                severity = 0.3
+            penalty = severity * 10
         
         self.session_events[session_id].append({
             "timestamp": datetime.utcnow().isoformat(),
             "event_type": event_type,
             "description": payload.get("description", ""),
-            "severity": severity,
+            "severity": penalty / 10.0,
             "metadata": payload
         })
         
-        # Обновляем trust_score
-        self.session_trust_scores[session_id] = max(0.0, self.session_trust_scores[session_id] - severity * 10)
+        # Обновляем trust_score, вычитая penalty
+        old_score = self.session_trust_scores[session_id]
+        self.session_trust_scores[session_id] = max(0.0, self.session_trust_scores[session_id] - penalty)
+        new_score = self.session_trust_scores[session_id]
+        print(f"[ANTICHEAT] Event: {event_type}, Penalty: {penalty}, Score: {old_score} -> {new_score}")
 
     def snapshot(self, session_id: str) -> AntiCheatSnapshot:
         """Получение снимка состояния анти-читинга."""

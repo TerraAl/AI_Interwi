@@ -166,6 +166,10 @@ class AdminTaskCreate(BaseModel):
 class InterviewInitRequest(BaseModel):
     candidate_name: str
     stack: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    position: Optional[str] = None
 
 class SessionStartResponse(BaseModel):
     session_id: str
@@ -187,3 +191,20 @@ class SubmissionResponse(BaseModel):
 class InterviewEvent(BaseModel):
     type: str
     payload: Dict[str, Any] = {}
+
+class ReportGenerateRequest(BaseModel):
+    session_id: Optional[str] = None
+    candidate_name: str
+    task_title: str
+    submitted_code: str
+    language: str
+    test_results: Dict[str, Any]
+    trust_score: float
+    code_quality_score: float
+    recommendations: List[str] = []
+    chat_history: List[Dict[str, str]] = []
+    # Optional contact fields from the pre-interview form
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    position: Optional[str] = None
