@@ -187,3 +187,72 @@ class AIInterviewer:
                 session_id,
                 {"type": "chat:ai", "message": f"Не удалось сформировать фидбек: {e}"},
             )
+
+    async def generate_followup_question(self, task_title: str) -> str:
+        """Generate a follow-up question after a successful task."""
+        prompt = (
+            "Ты технический интервьюер. Кандидат только что успешно решил задачу "
+            f"«{task_title}». Задай один ёмкий уточняющий вопрос, который проверяет "
+            "понимание архитектурных компромиссов и подготовит кандидата к более сложному этапу. "
+            "Ответ должен быть на русском языке и занимать 1-2 предложения."
+        )
+        result = await self._simple_completion(prompt, temperature=0.8, max_tokens=200)
+        if result:
+            return result
+        return (
+            f"Отличная работа с задачей «{task_title}»! Расскажи, как поведёт себя твоё решение, "
+            "если увеличить размер входных данных в 10 раз и появятся ограничения по памяти?"
+        )
+
+    async def evaluate_followup_answer(
+        self, candidate_answer: str, next_task_title: str
+    ) -> str:
+        """Generate a short evaluation of candidate answer and introduce next task."""
+        prompt = (
+            "Ты ведёшь интервью. Вот ответ кандидата на уточняющий вопрос:\n"
+            f"```\n{candidate_answer}\n```\n"
+            "Сформулируй короткий отзыв (2-3 предложения): отметь сильные стороны и что можно улучшить. "
+            f"Затем в явном виде пригласи кандидата перейти к следующей задаче «{next_task_title}» уровня Middle. "
+            "Пиши по-русски."
+        )
+        result = await self._simple_completion(prompt, temperature=0.7, max_tokens=250)
+        if result:
+            return result
+        return (
+            "Спасибо за развёрнутый ответ — видно, что ты понимаешь основные узкие места решения. "
+            f"Давай перейдём к более сложной задаче уровня Middle: «{next_task_title}». Удачи!"
+        )
+
+    async def _simple_completion(
+        self,
+        user_prompt: str,
+        temperature: float = 0.7,
+        max_tokens: int = 256,
+    ) -> Optional[str]:
+        """Utility helper for single-turn completions."""
+        if not self.client:
+            return None
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        try:
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=False,
+                ),
+            )
+            if response.choices:
+                content = getattr(response.choices[0].message, "content", None)
+                if content:
+                    return content.strip()
+            return None
+        except Exception as exc:
+            print(f"[AI] simple completion failed: {exc}")
+            return None

@@ -193,6 +193,15 @@ class SubmissionResponse(BaseModel):
     progress: Optional[Dict[str, Any]] = None
     scoring: Optional[Dict[str, Any]] = None
 
+class NextTaskRequest(BaseModel):
+    session_id: str
+    stack: Optional[str] = None
+    candidate_answer: Optional[str] = None
+
+class NextTaskResponse(BaseModel):
+    task: Dict[str, Any]
+    message: Optional[str] = None
+
 class InterviewEvent(BaseModel):
     type: str
     payload: Dict[str, Any] = {}

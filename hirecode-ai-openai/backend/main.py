@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -24,7 +24,7 @@ from schemas import (
     InterviewSessionCreate, InterviewSession as SessionSchema,
     WSMessage, CodeUpdateMessage, AntiCheatAlertMessage, AIChatMessage,
     InterviewInitRequest, SessionStartResponse, SubmissionRequest, SubmissionResponse,
-    InterviewEvent, AdminTaskCreate, ReportGenerateRequest
+    InterviewEvent, AdminTaskCreate, ReportGenerateRequest, NextTaskRequest, NextTaskResponse
 )
 from ai_interviewer import AIInterviewer, InterviewContext
 from anticheat import AntiCheatService
@@ -55,6 +55,18 @@ anticheat_service = AntiCheatService()
 adaptive_engine = AdaptiveEngine()
 code_quality_analyzer = CodeQualityAnalyzer()
 judge = SubmissionJudge()
+
+MIDDLE_LEVEL_THRESHOLD = 1500
+FOLLOWUP_STATE_KEY = "followup_state"
+FOLLOWUP_STATE_AWAITING = "awaiting_candidate"
+FOLLOWUP_STATE_EVALUATING = "evaluating"
+FOLLOWUP_STATE_DONE = "completed"
+
+
+def _decode(value, default: Optional[str] = ""):
+    if isinstance(value, bytes):
+        return value.decode()
+    return value if value is not None else default
 
 # Initialize AI interviewer with manager
 async def log_chat(session_id: str, role: str, message: str):
@@ -118,6 +130,147 @@ async def broadcast_admin_session(session_id: str):
         await ws_manager.broadcast("__admin__", {"type": "admin:update", "session": payload})
     except Exception as e:
         print(f"[ADMIN-WS] Failed to broadcast session {session_id}: {e}")
+
+
+async def assign_middle_task(
+    session_id: str,
+    stack: str,
+    *,
+    preselected_task: Optional[Dict[str, Any]] = None,
+    ensure_min_completed: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Assigns a higher-level task to the session and notifies the client."""
+    task = preselected_task or adaptive_engine.pick_task_by_min_difficulty(
+        stack, MIDDLE_LEVEL_THRESHOLD
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="No next task available")
+
+    sess_key = f"session:{session_id}"
+    data = await redis_client.hgetall(sess_key)
+    if not data:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    tasks_completed = int(_decode(data.get(b"tasks_completed"), "0") or 0)
+    total_tasks = int(_decode(data.get(b"total_tasks"), "5") or 5)
+    deadline_utc = _decode(data.get(b"deadline_utc"), "")
+    if ensure_min_completed is not None and tasks_completed < ensure_min_completed:
+        tasks_completed = ensure_min_completed
+
+    empty_result = {
+        "task_id": task.get("id"),
+        "passed": False,
+        "visible_tests": [],
+        "hidden_tests_passed": 0,
+        "metrics": {"max_elapsed_ms": 0},
+        "code_quality": 0,
+    }
+
+    await redis_client.hset(
+        sess_key,
+        mapping={
+            FOLLOWUP_STATE_KEY: FOLLOWUP_STATE_DONE,
+            "task_id": task.get("id", ""),
+            "task_title": task.get("title", ""),
+            "latest_result": json.dumps(empty_result),
+            "tasks_completed": str(tasks_completed),
+        },
+    )
+
+    payload_task = {
+        "id": task.get("id"),
+        "title": task.get("title"),
+        "description": task.get("description"),
+        "follow_up": task.get("follow_up", []),
+        "stack": task.get("stack", stack),
+        "difficulty": task.get("difficulty"),
+        "difficulty_label": task.get("difficulty_label", "Middle"),
+        "initial_code": task.get("initial_code"),
+    }
+    progress_payload = {
+        "tasks_completed": tasks_completed,
+        "total_tasks": total_tasks,
+        "deadline_utc": deadline_utc,
+    }
+
+    await ws_manager.broadcast(
+        session_id,
+        {"type": "task:new", "task": payload_task, "progress": progress_payload},
+    )
+    await broadcast_admin_session(session_id)
+    return payload_task
+
+
+async def trigger_first_task_followup(session_id: str) -> None:
+    """Kick off the post-first-task conversational flow."""
+    sess_key = f"session:{session_id}"
+    try:
+        data = await redis_client.hgetall(sess_key)
+        task_title = _decode(data.get(b"task_title"), "первой задаче")
+        question = await ai.generate_followup_question(task_title)
+        await redis_client.hset(
+            sess_key,
+            mapping={
+                FOLLOWUP_STATE_KEY: FOLLOWUP_STATE_AWAITING,
+                "followup_question": question,
+            },
+        )
+        await ws_manager.broadcast(
+            session_id, {"type": "chat:ai", "message": question}
+        )
+        await log_chat(session_id, "ai", question)
+        print(f"[FOLLOWUP] Question queued for session {session_id}")
+    except Exception as exc:
+        print(f"[FOLLOWUP] Failed to start follow-up for {session_id}: {exc}")
+
+
+async def maybe_handle_followup_answer(session_id: str, answer: str) -> bool:
+    """Process candidate's reply to the follow-up question."""
+    sess_key = f"session:{session_id}"
+    state_raw = await redis_client.hget(sess_key, FOLLOWUP_STATE_KEY)
+    if _decode(state_raw) != FOLLOWUP_STATE_AWAITING:
+        return False
+
+    await redis_client.hset(sess_key, mapping={FOLLOWUP_STATE_KEY: FOLLOWUP_STATE_EVALUATING})
+    stack = _decode(await redis_client.hget(sess_key, "stack"), "python")
+    try:
+        next_task_raw = adaptive_engine.pick_task_by_min_difficulty(
+            stack, MIDDLE_LEVEL_THRESHOLD
+        )
+    except HTTPException:
+        next_task_raw = None
+
+    if not next_task_raw:
+        fallback_msg = (
+            "Спасибо за ответ! Я зафиксировал его, но не смог подобрать следующую задачу. "
+            "Свяжитесь с администратором, чтобы продолжить интервью."
+        )
+        await ws_manager.broadcast(
+            session_id, {"type": "chat:ai", "message": fallback_msg}
+        )
+        await log_chat(session_id, "ai", fallback_msg)
+        await redis_client.hset(
+            sess_key, mapping={FOLLOWUP_STATE_KEY: FOLLOWUP_STATE_DONE}
+        )
+        return True
+
+    evaluation = await ai.evaluate_followup_answer(
+        answer, next_task_raw.get("title", "Middle-задача")
+    )
+    await ws_manager.broadcast(
+        session_id, {"type": "chat:ai", "message": evaluation}
+    )
+    await log_chat(session_id, "ai", evaluation)
+    await assign_middle_task(
+        session_id,
+        stack,
+        preselected_task=next_task_raw,
+        ensure_min_completed=1,
+    )
+    print(
+        f"[FOLLOWUP] Middle task {next_task_raw.get('id')} issued for session {session_id}"
+    )
+    return True
 
 # CORS
 app.add_middleware(
@@ -406,9 +559,11 @@ async def submit_solution(
     except Exception:
         tasks_completed, total_tasks, deadline_utc = 0, 5, None
 
+    previous_tasks_completed = tasks_completed
     # If all visible tests passed for this task, increment tasks_completed (max total_tasks)
     if total_visible > 0 and passed_visible == total_visible:
         tasks_completed = min(total_tasks, tasks_completed + 1)
+    first_task_completed = previous_tasks_completed == 0 and tasks_completed == 1
 
     # Persist latest score/grade/progress
     await redis_client.hset(
@@ -441,6 +596,9 @@ async def submit_solution(
         "deadline_utc": deadline_utc.decode() if isinstance(deadline_utc, bytes) else deadline_utc,
     }
 
+    if first_task_completed:
+        asyncio.create_task(trigger_first_task_followup(payload.session_id))
+
     return SubmissionResponse(
         passed=judge_result["passed"],
         visible_tests=judge_result["visible_tests"],
@@ -450,6 +608,40 @@ async def submit_solution(
         progress=progress,
         scoring=scoring,
     )
+
+@app.post("/api/interview/next-task", response_model=NextTaskResponse)
+async def request_next_task(payload: NextTaskRequest) -> NextTaskResponse:
+    sess_key = f"session:{payload.session_id}"
+    data = await redis_client.hgetall(sess_key)
+    if not data:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    stack = payload.stack or _decode(data.get(b"stack"), "python")
+    next_task_raw = adaptive_engine.pick_task_by_min_difficulty(
+        stack, MIDDLE_LEVEL_THRESHOLD
+    )
+    if not next_task_raw:
+        raise HTTPException(status_code=404, detail="No next task available")
+
+    message = None
+    if payload.candidate_answer:
+        message = await ai.evaluate_followup_answer(
+            payload.candidate_answer, next_task_raw.get("title", "Middle-задача")
+        )
+        await ws_manager.broadcast(
+            payload.session_id, {"type": "chat:ai", "message": message}
+        )
+        await log_chat(payload.session_id, "ai", message)
+
+    task_payload = await assign_middle_task(
+        payload.session_id,
+        stack,
+        preselected_task=next_task_raw,
+        ensure_min_completed=1,
+    )
+
+    return NextTaskResponse(task=task_payload, message=message)
+
 
 @app.post("/api/admin/tasks")
 async def create_task_admin(payload: AdminTaskCreate):
@@ -586,15 +778,19 @@ async def interview_ws(websocket: WebSocket, session_id: str) -> None:
 
             if event.type == "chat:user":
                 await log_chat(session_id, "user", event.payload.get("message", ""))
-                # Trigger AI response
-                context = InterviewContext.from_event(event)
-                asyncio.create_task(
-                    ai.stream_reply(
-                        session_id=session_id,
-                        ws_manager=ws_manager,
-                        context=context
-                    )
+                handled = await maybe_handle_followup_answer(
+                    session_id, event.payload.get("message", "")
                 )
+                if not handled:
+                    # Trigger standard AI response
+                    context = InterviewContext.from_event(event)
+                    asyncio.create_task(
+                        ai.stream_reply(
+                            session_id=session_id,
+                            ws_manager=ws_manager,
+                            context=context
+                        )
+                    )
             elif event.type == "code:update":
                 ai.cache_code_snapshot(session_id, event.payload.get("content", ""))
                 await redis_client.hset(

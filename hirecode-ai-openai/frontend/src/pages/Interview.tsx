@@ -24,6 +24,9 @@ type SessionStart = {
     description: string;
     follow_up: string[];
     stack: string;
+    difficulty?: number;
+    difficulty_label?: string;
+    initial_code?: string;
   };
 };
 
@@ -63,6 +66,8 @@ export default function Interview() {
   const [isRunning, setIsRunning] = useState(false);
   const [interviewFinished, setInterviewFinished] = useState(false);
   const socketRef = useRef<InterviewSocket>();
+  const [canAdvance, setCanAdvance] = useState(false);
+  const [advanceLoading, setAdvanceLoading] = useState(false);
 
   // Require user data from navigation state; force login on fresh visit
   useEffect(() => {
@@ -117,6 +122,8 @@ export default function Interview() {
       if (cancelled) return;
       setSession(data);
       setProgress(data.progress ?? null);
+      setCanAdvance(false);
+      setAdvanceLoading(false);
       if (data.progress?.deadline_utc) {
         const deadlineMs = Date.parse(data.progress.deadline_utc);
         const update = () => {
@@ -156,6 +163,26 @@ export default function Interview() {
           setStreaming(message.status === "started");
         } else if (message.type === "anticheat") {
           setAntiCheat(message);
+        } else if (message.type === "task:new" && message.task) {
+          const nextTask = message.task as SessionStart["task"];
+          setSession((prev) => (prev ? { ...prev, task: nextTask } : prev));
+          setCode(nextTask.initial_code ?? "# Начни решение прямо здесь");
+          setResults(null);
+          setScoring(null);
+          setCanAdvance(false);
+          setAdvanceLoading(false);
+          if (message.progress) {
+            setProgress(message.progress as Progress);
+          }
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "system",
+              content: `Новая задача (${nextTask.difficulty_label ?? "Middle"}): ${nextTask.title}\n\n${nextTask.description}`,
+            },
+          ]);
+          window.scrollTo({ top: 0, behavior: "smooth" });
         }
       });
     };
@@ -194,11 +221,48 @@ export default function Interview() {
         setProgress(payload.progress ?? null);
         setScoring(payload.scoring ?? null);
         sendEvent("code:update", { content: code });
+        setCanAdvance(true);
       })
       .finally(() => {
         setIsRunning(false);
       });
   }, [session, code, language, sendEvent]);
+
+  const handleNextTask = useCallback(async () => {
+    if (!session) return;
+    setAdvanceLoading(true);
+    try {
+      const response = await fetch("/api/interview/next-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: session.session_id,
+          stack: session.task?.stack ?? language,
+        }),
+      });
+      if (!response.ok) {
+        const details = await response.text();
+        throw new Error(details || "Server error");
+      }
+      const payload = await response.json();
+      if (payload?.message) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "ai",
+            content: String(payload.message),
+          },
+        ]);
+      }
+      setCanAdvance(false);
+    } catch (error) {
+      console.error("[INTERVIEW] Failed to request next task:", error);
+      alert("Не удалось получить следующую задачу. Попробуйте ещё раз.");
+    } finally {
+      setAdvanceLoading(false);
+    }
+  }, [session, language]);
 
   const handleSendChat = useCallback(
     (message: string) => {
@@ -226,6 +290,8 @@ export default function Interview() {
   }, [session, finishedByTime, finishedByTasks, interviewFinished, handleFinishInterview]);
 
   const handleNewInterview = useCallback(async () => {
+    setCanAdvance(false);
+    setAdvanceLoading(false);
     try {
       if (session && !isFinished) {
         await fetch("/api/interview/finish", {
@@ -308,6 +374,13 @@ export default function Interview() {
               className="rounded-2xl px-6 py-2 bg-white/10 hover:bg-white/20 text-white font-semibold transition-colors"
             >
               Новое интервью
+            </button>
+            <button
+              onClick={handleNextTask}
+              disabled={!canAdvance || advanceLoading || isFinished}
+              className="rounded-2xl px-6 py-2 bg-emerald-500/80 hover:bg-emerald-400 text-black font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {advanceLoading ? "Готовим…" : "Далее"}
             </button>
             <button
               onClick={handleFinishInterview}

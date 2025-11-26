@@ -45,6 +45,32 @@ class AdaptiveEngine:
         task = random.choice(candidates)
         return task.data
 
+    def pick_task_by_min_difficulty(
+        self,
+        stack: str,
+        min_difficulty: int,
+        fallback_label: str = "middle",
+    ) -> Optional[Dict]:
+        """Return a task with at least the requested difficulty."""
+        candidates: List[TaskRecord] = [
+            task
+            for task in self.tasks.values()
+            if task.stack == stack and task.difficulty >= min_difficulty
+        ]
+        if not candidates:
+            candidates = [
+                task for task in self.tasks.values() if task.difficulty >= min_difficulty
+            ]
+        if not candidates:
+            candidates = list(self.tasks.values())
+        if not candidates:
+            return None
+
+        choice = random.choice(candidates)
+        data = dict(choice.data)
+        data.setdefault("difficulty_label", fallback_label.capitalize())
+        return data
+
     def save_task(self, payload: AdminTaskCreate) -> Dict:
         data = payload.dict()
         file = TASKS_DIR / f"{payload.id}.json"
